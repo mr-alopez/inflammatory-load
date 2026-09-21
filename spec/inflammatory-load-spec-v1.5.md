@@ -7,6 +7,11 @@ becomes a stated known limitation rather than an open decision, and §7.2a state
 **This document is complete.** §11's ten steps are built and this is no longer a build
 document. The next round of findings comes from use.
 
+**Corrected in place, 2026-09-21.** §12 still listed `[OPEN-9]` as an open decision with an
+interim default, while §4.5 had recorded it as decided since v1.2 — the spec contradicted
+itself. No version bump: this records what v1.2 already decided rather than deciding anything,
+and a v1.6 existing only to fix a stale cross-reference would be heavier than the defect.
+
 Previously (v1.4): completed §7, the last unbuilt section: `category-map.json` becomes a
 required data file, the swap engine's position relative to G1 is stated (§7.0), candidate
 rescaling is specified, and §7.3's suppression cases are ordered.
@@ -2037,11 +2042,20 @@ was written last, and is reported rather than resolved.
 
 ---
 
-## 12. Open decisions
+## 12. Open decisions and known limitations
 
-None blocks any step. `[OPEN-7]` and `[OPEN-8]` are resolved in v1.0: the corpus by §7.2's
-logged-history rule, and `[OPEN-8]`'s count-stated serving (`1 bar`, `2 cookies`) by the
-median rule, which never consults a label serving.
+**No open decisions remain.** All four are resolved:
+
+- `[OPEN-6]` **Timezone and day boundary** — accepted rather than resolved. Recorded as the
+  known limitation below.
+- `[OPEN-7]` **Swap candidate corpus** — resolved in v1.0 by §7.2's logged-history rule.
+- `[OPEN-8]` **`REFERENCE_MASS` from a count-stated serving** — resolved in v1.0 by the same
+  edit: the median rule never consults a label serving, so `1 bar` and `2 cookies` never arise.
+- `[OPEN-9]` **`TREND_EPOCH` after a full data wipe** — resolved in v1.2. A full wipe clears
+  the epoch atomically with the entries, and the next log sets it afresh; §4.5's Anchoring
+  paragraph carries the rule and the reasoning. Deleting every entry one by one is not a wipe
+  and leaves the epoch standing — a known asymmetry, correct under §4.5 but emergent rather
+  than chosen.
 
 **Known limitation — timezone and day boundary.** Entries are assigned to the device's local
 calendar date at write time, and the date is stored immutably (§8.4). If the device timezone
@@ -2052,9 +2066,6 @@ This is accepted rather than resolved. Its former consequence — an entry falli
 trend block — was removed by bidirectional blocks (§4.5, v1.3), so a misassigned entry is still
 counted and still plotted, only possibly on the neighbouring day. Travel across timezones is the
 case in which it will be seen.
-- `[OPEN-9]` **`TREND_EPOCH` after a full data wipe.** §8.4 says immutable and that deleting the
-  first entry does not move it, but says nothing about clearing all data. Interim: a full wipe
-  clears `TREND_EPOCH`, and the next log sets it afresh. Affects §4.5 only.
 
 ---
 
