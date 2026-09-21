@@ -19,7 +19,9 @@ export const LOOKUP = {
   ERROR: 'ERROR',
 };
 
-const OFF_BASE = 'https://world.openfoodfacts.org/api/v2';
+const OFF_BASE = 'https://world.openfoodfacts.org/api/v2';          // barcode lookup (§8.1)
+const OFF_V1_SEARCH = 'https://world.openfoodfacts.org/cgi/search.pl';  // text search (§8.1)
+const OFF_COUNTRY = 'United States';                                // text search only (§8.1)
 const USDA_BASE = 'https://api.nal.usda.gov/fdc/v1';
 
 /** §8.2: Foundation Foods and SR Legacy only. Branded is not an eligible source. */
@@ -88,9 +90,27 @@ export async function lookupBarcode(barcode) {
   return { status: LOOKUP.OK, raw: shapeOFF(r.body.product), source: 'OFF' };
 }
 
+/**
+ * §8.1 text search — the v1 endpoint, NOT v2.
+ *
+ * v2 supports structured filters only. It does not reject an unsupported text
+ * parameter; it ignores it and returns an unfiltered global result set. Measured
+ * against the live service: `q=cheerios`, `q=banana` and `q=xyzzyqwerty` all
+ * returned the identical count of 4,762,840 and the identical top three products
+ * — which is how a search for cereal returned Moroccan mineral water.
+ *
+ * v1 honours the query AND returns the full product record: `nutriments`,
+ * `nutrition_data_per`, `quantity`, `nova_group`, `ingredients`. Search-a-licious
+ * honours the query but returns only an index document, so every result would
+ * need a second lookup and would still often arrive without nutriments.
+ *
+ * `countries_tags_en` filters to US products. Text search only — a scanned
+ * barcode resolves regardless of country, because the product is in the hand.
+ */
 export async function searchOFF(query, limit = 10) {
-  const url = `${OFF_BASE}/search?categories_tags_en=&fields=${OFF_FIELDS}`
-    + `&page_size=${limit}&q=${encodeURIComponent(query)}`;
+  const url = `${OFF_V1_SEARCH}?search_terms=${encodeURIComponent(query)}`
+    + '&search_simple=1&action=process&json=1'
+    + `&page_size=${limit}&countries_tags_en=${encodeURIComponent(OFF_COUNTRY)}`;
   const r = await getJson(url);
   if (r.status !== LOOKUP.OK) return r;
   const products = r.body?.products ?? [];

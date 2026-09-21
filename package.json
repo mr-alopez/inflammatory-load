@@ -6,11 +6,13 @@
   "description": "Scoring core, storage, sources, macros and display for Dietary Inflammatory Load spec v0.9, §11 steps 1-5.",
   "scripts": {
     "test": "node test/run.js && node test/storage.js && node test/sources.js && node test/macros.js && node test/display.js && node test/shell.js && node test/trend.js && node test/swap.js",
-    "audit": "node tools/audit.mjs spec/inflammatory-load-spec-v1.5.md",
+    "audit": "node tools/audit.mjs spec/inflammatory-load-spec-v1.6.md",
     "test:scoring": "node test/run.js",
     "test:storage": "node test/storage.js",
     "test:sources": "node test/sources.js",
     "test:macros": "node test/macros.js",
-    "test:display": "node test/display.js"
+    "test:display": "node test/display.js",
+    "test:live": "node test/live.js",
+    "test:live:v2": "node test/live.js --endpoint=v2"
   }
 }

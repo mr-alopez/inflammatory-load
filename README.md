@@ -448,3 +448,46 @@ they exist elsewhere states something no longer true.
    markup edit and rendered as visible text for a whole step; the browser
    recovered silently and no test noticed, because the structural checks scan
    script and style rather than the document.
+
+## Text search (v1.6) — the first defect found by use
+
+Searching "cheerios" returned Moroccan mineral water. Cause, confirmed against
+the live service before anything was changed:
+
+```
+q="cheerios"      count 4762840   top: Fromage Blanc Nature / Sidi Ali / Perly
+q="banana"        count 4762840   top: Fromage Blanc Nature / Sidi Ali / Perly
+q="xyzzyqwerty"   count 4762840   top: Fromage Blanc Nature / Sidi Ali / Perly
+```
+
+Open Food Facts' **v2 search endpoint supports structured filters only.** It does
+not reject an unsupported text parameter — it ignores it and returns the whole
+database, whose most-scanned products skew European and North African.
+
+**Text search now uses the v1 endpoint** (`/cgi/search.pl`), filtered to US
+products. Barcode lookup is unchanged; it was never affected.
+
+**Not Search-a-licious**, despite being the newer service. It honours the query
+but returns a search index document, not a product record — no `nutriments`, no
+`nutrition_data_per`, no `nova_group`. Every result would need a second lookup
+and would still often arrive empty: hydrating its first "cheerios" hit via the
+product endpoint returned zero nutriments. §3.3c would refuse nearly every
+result, routing a working search to manual entry.
+
+### `npm run test:live`
+
+Separate from `npm test`, because it needs a network and must never gate the
+build. Seven assertions against the real service, each able to fail on the
+defect — `npm run test:live:v2` re-runs them against the old endpoint to prove
+it, and exits non-zero if they *pass* there.
+
+Two of its own assertions were vacuous on first writing, which is the §2.5
+lesson recurring inside the file written to close it:
+
+- `nonsense → ERROR` reported green. A service error proves nothing about
+  whether the query was honoured. It now retries, and reports *inconclusive*
+  rather than passing.
+- The US filter check found `0/0` results carrying `en:united-states`, because
+  `shapeOFF` does not carry `countries_tags` through. It now asserts against the
+  raw service and proves the filter by its effect: 347 US results versus 619
+  global.
