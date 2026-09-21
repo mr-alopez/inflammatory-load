@@ -1,0 +1,27 @@
+{
+  "version": "DMAP-2",
+  "note": "§3.3a. Densities are physical constants for the class, not estimates of the individual product. Tags are OFF categories_tags fragments (§7.2a) — declared fields, never the product name (§8.3).",
+  "densities": {
+    "water_based_beverage": 1.00,
+    "juice": 1.04,
+    "milk": 1.03,
+    "beer": 1.01,
+    "wine": 0.99,
+    "spirits": 0.94,
+    "culinary_oil": 0.91
+  },
+  "tags": {
+    "beer": ["beers", "beer"],
+    "wine": ["wines", "wine"],
+    "spirits": ["spirits", "liquors", "whiskies", "vodkas", "rums"],
+    "juice": ["juices", "nectars", "fruit-juices"],
+    "milk": ["milks", "dairy-drinks", "plant-milks"],
+    "culinary_oil": ["olive-oils", "vegetable-oils", "cooking-oils"],
+    "water_based_beverage": ["sodas", "waters", "coffees", "teas", "soft-drinks"]
+  },
+  "juice_classification": {
+    "note": "§3.5. A juice-classified entry reads P1 from total sugars and earns no A4.",
+    "include": ["fruit-juices", "100-juices", "orange-juices", "apple-juices"],
+    "exclude": ["nectars", "smoothies", "fruit-drinks", "juice-drinks"]
+  }
+}

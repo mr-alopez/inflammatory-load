@@ -1,0 +1,1047 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Inflammatory Load</title>
+<link rel="manifest" href="./manifest.webmanifest">
+<meta name="theme-color" content="#1a1a1a">
+<style>
+  :root {
+    --bg: #fbfbfa; --fg: #1a1a1a; --dim: #6b6b6b; --rule: #e2e2df;
+    --card: #ffffff; --nav: #ffffff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #17171a; --fg: #ececec; --dim: #9a9a9a; --rule: #2e2e33;
+      --card: #1e1e22; --nav: #1e1e22;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font: 15px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  header { padding: 20px 18px 10px; }
+  h1 { margin: 0; font-size: 17px; font-weight: 600; letter-spacing: -0.01em; }
+  main { padding: 0 18px 84px; max-width: 640px; margin: 0 auto; }
+
+  /* §4.4: no entry is banded or coloured. Bands are text, on days and windows only. */
+  .load { font-variant-numeric: tabular-nums; font-size: 26px; font-weight: 600; }
+  .summary { border-bottom: 1px solid var(--rule); padding: 14px 0; }
+  .summary-line { font-variant-numeric: tabular-nums; }
+  .entry { background: var(--card); border: 1px solid var(--rule); border-radius: 10px;
+           padding: 12px 14px; margin: 10px 0; }
+  .entry-line { font-variant-numeric: tabular-nums; }
+  .drivers, .macros, .incomplete { color: var(--dim); font-size: 13.5px; margin-top: 3px; }
+  .muted { color: var(--dim); }
+  .empty { color: var(--dim); padding: 28px 0; }
+  section[hidden] { display: none; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em;
+       color: var(--dim); font-weight: 600; margin: 26px 0 8px; }
+  pre.method { white-space: pre-wrap; font: inherit; color: var(--dim);
+               border-left: 2px solid var(--rule); padding-left: 12px; margin: 10px 0 18px; }
+
+  nav { position: fixed; left: 0; right: 0; bottom: 0; display: flex;
+        background: var(--nav); border-top: 1px solid var(--rule);
+        padding-bottom: env(safe-area-inset-bottom); }
+  nav button { flex: 1; background: none; border: 0; color: var(--dim);
+               font: inherit; padding: 12px 4px; cursor: pointer; }
+  nav button[aria-current="page"] { color: var(--fg); font-weight: 600; }
+
+  .add { display: block; width: 100%; margin: 10px 0; padding: 13px;
+         font: inherit; font-weight: 600; background: var(--card); color: var(--fg);
+         border: 1px solid var(--rule); border-radius: 10px; cursor: pointer; }
+  .add.secondary { font-weight: 400; color: var(--dim); }
+  .field { display: block; margin: 12px 0; font-size: 13.5px; color: var(--dim); }
+  .field input[type="text"], .field input:not([type]), .field select {
+    display: block; width: 100%; margin-top: 5px; padding: 10px; font: inherit;
+    color: var(--fg); background: var(--card);
+    border: 1px solid var(--rule); border-radius: 8px; }
+  .row { display: flex; gap: 8px; align-items: center; margin-top: 5px; }
+  .row input:not([type="checkbox"]) { flex: 1; }
+  .row select { width: auto; }
+  /* A factual statement about the app (§13.3), never about the user. */
+  .notice { border: 1px solid var(--rule); border-left-width: 3px; border-radius: 8px;
+            padding: 11px 13px; margin: 12px 0; font-size: 13.5px; color: var(--dim); }
+  video { width: 100%; border-radius: 10px; background: #000; aspect-ratio: 4/3; }
+  .result { display: block; width: 100%; text-align: left; background: var(--card);
+            border: 1px solid var(--rule); border-radius: 10px; padding: 11px 13px;
+            margin: 8px 0; font: inherit; color: var(--fg); cursor: pointer; }
+  .swap-ask { display: block; width: 100%; margin-top: 10px; padding: 8px; font: inherit;
+    font-size: 13.5px; color: var(--dim); background: none; border: 1px dashed var(--rule);
+    border-radius: 8px; cursor: pointer; }
+  .swap-result { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--rule);
+    font-size: 13.5px; color: var(--dim); }
+  .nf { display: grid; grid-template-columns: 1fr auto auto; gap: 8px;
+        align-items: center; margin: 7px 0; font-size: 13.5px; }
+  .mtable { width: 100%; border-collapse: collapse; font-size: 13px; margin: 8px 0 4px; }
+  .mtable th { text-align: left; font-weight: 600; color: var(--dim); padding: 6px 8px 6px 0;
+               border-bottom: 1px solid var(--rule); }
+  .mtable td { padding: 5px 8px 5px 0; border-bottom: 1px solid var(--rule); color: var(--dim);
+               font-variant-numeric: tabular-nums; }
+  .mtable td:nth-child(2) { color: var(--fg); }
+  .nf input { width: 90px; padding: 8px; font: inherit; color: var(--fg);
+              background: var(--card); border: 1px solid var(--rule); border-radius: 8px; }
+</style>
+</head>
+<body>
+
+<header><h1 id="screen-title">Today</h1></header>
+
+<main>
+  <!-- ── Today (§13.1) ───────────────────────────────────────────── -->
+  <section id="today">
+    <div class="load" id="today-load">Today so far: +0.0</div>
+    <div class="macros" id="today-macros"></div>
+    <button class="add" id="go-add">Add an entry</button>
+    <button class="add secondary method-link" data-screen="method">How these numbers are made</button>
+    <h2>Entries</h2>
+    <div id="today-entries"></div>
+  </section>
+
+  <!-- ── Log (§13.1) ─────────────────────────────────────────────── -->
+  <section id="log" hidden>
+    <h2>Last 3 completed days</h2>
+    <div class="summary-line" id="window-summary"></div>
+    <div class="summary-line muted" id="window-normalized"></div>
+    <button class="add secondary method-link" data-screen="method">How these numbers are made</button>
+    <h2>By date</h2>
+    <div id="log-days"></div>
+  </section>
+
+  <!-- ── Add — §13.2 logging flow ─────────────────────────────────── -->
+  <section id="add" hidden>
+    <div id="add-notice" class="notice" hidden></div>
+
+    <!-- step: choose a path -->
+    <div id="add-choose">
+      <button class="add" data-path="scan">Scan a barcode</button>
+      <button class="add" data-path="search">Search by name</button>
+      <button class="add" data-path="saved">From saved products</button>
+      <button class="add" data-path="manual">Enter it manually</button>
+    </div>
+
+    <!-- step: camera -->
+    <div id="add-scan" hidden>
+      <video id="scan-video" playsinline muted></video>
+      <p class="muted" id="scan-status"></p>
+      <label class="field">Or type the barcode
+        <input id="scan-manual-code" inputmode="numeric" autocomplete="off">
+      </label>
+      <button class="add" id="scan-lookup">Look it up</button>
+      <button class="add secondary" data-back>Back</button>
+    </div>
+
+    <!-- step: text search -->
+    <div id="add-search" hidden>
+      <label class="field">Product name
+        <input id="search-q" autocomplete="off">
+      </label>
+      <button class="add" id="search-go">Search</button>
+      <div id="search-results"></div>
+      <button class="add secondary" data-back>Back</button>
+    </div>
+
+    <!-- step: saved products (§8.5a) -->
+    <div id="add-saved" hidden>
+      <div id="saved-list"></div>
+      <button class="add secondary" data-back>Back</button>
+    </div>
+
+    <!-- step: quantity (§3.3) -->
+    <div id="add-quantity" hidden>
+      <h2>Quantity</h2>
+      <p id="quantity-product"></p>
+      <label class="field">Amount
+        <span class="row">
+          <input id="quantity-value" inputmode="decimal" autocomplete="off">
+          <select id="quantity-unit">
+            <option value="g">grams</option>
+            <option value="ml">millilitres</option>
+          </select>
+        </span>
+      </label>
+      <button class="add" id="quantity-package" hidden></button>
+      <p class="muted" id="quantity-preview"></p>
+      <button class="add" id="quantity-confirm">Confirm and log</button>
+      <button class="add secondary" data-back>Back</button>
+    </div>
+
+    <!-- step: manual entry (§8.5) -->
+    <div id="add-manual" hidden>
+      <h2>Manual entry</h2>
+      <p class="muted" id="manual-why"></p>
+      <label class="field">Name <input id="m-name" autocomplete="off"></label>
+      <label class="field">Serving or package mass (g)
+        <input id="m-mass" inputmode="decimal" autocomplete="off"></label>
+      <label class="field">If a liquid — volume (ml)
+        <input id="m-volume" inputmode="decimal" autocomplete="off"></label>
+      <label class="field">If a liquid — density (g/ml)
+        <input id="m-density" inputmode="decimal" autocomplete="off"></label>
+
+      <h2>Nutrients — per serving</h2>
+      <p class="muted">Every field is supplied or marked absent. Leaving one blank
+        is not the same as saying it is unavailable (§8.5).</p>
+      <div id="m-nutrients"></div>
+      <h2>Calories and macros</h2>
+      <div id="m-macros"></div>
+
+      <h2>Classification</h2>
+      <div id="m-classifications"></div>
+      <label class="field" id="m-p3-wrap">
+        <span class="row"><input type="checkbox" id="m-p3" disabled>
+        <span>Alcohol — enter a volume above to enable</span></span>
+      </label>
+      <label class="field" id="m-abv-wrap" hidden>ABV %
+        <input id="m-abv" inputmode="decimal" autocomplete="off"></label>
+
+      <p class="muted" id="manual-error"></p>
+      <button class="add" id="manual-submit">Log this entry</button>
+      <label class="field"><span class="row"><input type="checkbox" id="m-save">
+        <span>Also save this product for next time (stays on this device)</span></span></label>
+      <button class="add secondary" data-back>Back</button>
+    </div>
+  </section>
+
+  <!-- ── Trend (§4.5) ────────────────────────────────────────────── -->
+  <section id="trend" hidden>
+    <h2>Three-day blocks</h2>
+    <div id="trend-plot"></div>
+    <p class="muted" id="trend-legend"></p>
+    <button class="add secondary method-link" data-screen="method">How these numbers are made</button>
+  </section>
+
+  <!-- ── Settings — the optional USDA key (§8.2, §13.1) ───────────── -->
+  <section id="settings" hidden>
+    <h2>USDA FoodData Central</h2>
+    <p class="muted">Optional. The app works without it, using Open Food Facts alone.
+      A key is free from FoodData Central. It is stored on this device only and is
+      never sent anywhere except to FoodData Central.</p>
+    <label class="field">API key
+      <input id="usda-key" autocomplete="off" spellcheck="false"></label>
+    <button class="add" id="usda-save">Save key</button>
+    <button class="add secondary" id="usda-clear">Remove key</button>
+    <p class="muted" id="usda-status"></p>
+  </section>
+
+  <!-- ── Method (§9.1) — the full method page ────────────────────── -->
+  <section id="method" hidden>
+    <p class="muted" id="m-scope"></p>
+
+    <h2>How a score is made</h2>
+    <p class="muted" id="m-prov"></p>
+    <p class="muted">No food carries a score. Attributes carry scores, and a food's
+      score is the sum of the attributes it resolves to.</p>
+    <div id="m-attributes"></div>
+
+    <h2>What counts as one serving</h2>
+    <div id="m-servings"></div>
+
+    <h2>Millilitres to grams</h2>
+    <p class="muted" id="m-density-rule"></p>
+    <div id="m-densities"></div>
+
+    <h2>Scaling to what you ate</h2>
+    <p class="muted" id="m-scaling"></p>
+
+    <h2>Juice</h2>
+    <p class="muted" id="m-juice"></p>
+
+    <h2>Comparing days</h2>
+    <p class="muted" id="m-comp"></p>
+
+    <h2>Calories and macros</h2>
+    <p class="muted" id="m-macro"></p>
+
+    <h2>The trend</h2>
+    <p class="muted" id="m-trend"></p>
+  </section>
+</main>
+
+<nav id="nav">
+  <button data-screen="today" aria-current="page">Today</button>
+  <button data-screen="log">Log</button>
+  <button data-screen="add">Add</button>
+  <button data-screen="trend">Trend</button>
+  <button data-screen="method">Method</button>
+  <button data-screen="settings">Settings</button>
+</nav>
+
+<script type="module">
+import { EntryStore } from './src/store.js';
+import { openDatabase } from './src/backends/indexeddb.js';
+import { MemoryBackend } from './src/backends/memory.js';
+import {
+  todayLine, entryLine, entryMacroLine, incompleteMarker,
+  completedDaySummary, windowSummary, normalizedLine, dayMacroLine,
+  driverState, DRIVER_STATE, swapLine,
+} from './src/display.js';
+import { requestSwap } from './src/swap.js';
+import { macroTotals, normalizeWindow } from './src/macros.js';
+import { dayMacroLinePolicy } from './src/store.js';
+import { scoreEntry } from './src/scoring.js';
+import { resolveFromOFF, resolveFromUSDA } from './src/sources.js';
+import { createManualRecord, saveProduct, recordFromSaved, ABSENT } from './src/manual.js';
+import { buildEntry } from './src/entry.js';
+import { lookupBarcode, searchOFF, searchUSDA, LOOKUP } from './src/client.js';
+import * as DISC from './src/disclosures.js';
+import { ATTRIBUTES, ATTRIBUTE_ORDER, DENSITY_MAP, DMAP_VERSION } from './src/coefficients.js';
+import {
+  localDate, entriesForDate, dailyLoad, todayLoad,
+  completedDates, windowDates, windowEntries, hasMixedCoefficientVersions, trendBlocks,
+} from './src/select.js';
+
+/* §9.2–§9.5 literal strings are read from src/disclosures.js (§9.1, G3). */
+
+const $ = (id) => document.getElementById(id);
+const text = (el, s) => { el.textContent = s ?? ''; };
+
+/* ── storage ──────────────────────────────────────────────────────── */
+
+async function openStore() {
+  try {
+    return new EntryStore(await openDatabase(), { today: localDate() });
+  } catch {
+    // §8.6: never degrade to an unscored state. A browser without IndexedDB
+    // still opens; nothing persists, and that is visible rather than silent.
+    return new EntryStore(new MemoryBackend(), { today: localDate() });
+  }
+}
+
+/* ── rendering ────────────────────────────────────────────────────── */
+
+function renderEntry(entry) {
+  const el = document.createElement('div');
+  el.className = 'entry';
+
+  // §6.1. Everything here is READ from the stored entry (§8.4 self-sufficiency).
+  // Nothing is rescored: G1 widened SCHEMA-3 so the driver line and the §6.4
+  // marker come from `contributions`, `classification_set` and `incomplete`.
+  const [head, driverLine] = entryLine(entry);
+  const line = document.createElement('div');
+  line.className = 'entry-line';
+  text(line, head);
+  el.append(line);
+
+  if (driverLine) {
+    const d = document.createElement('div');
+    d.className = 'drivers';
+    text(d, driverLine);
+    el.append(d);
+  } else if (driverState(entry) === DRIVER_STATE.LEGACY_DEFICIENT) {
+    // §6.1: omission is one state. An entry written before SCHEMA-3 has no
+    // classification set and none can be recovered (§8.6), so it is marked as
+    // such rather than rendered as though nothing reached the threshold.
+    const d = document.createElement('div');
+    d.className = 'drivers';
+    text(d, 'Logged before drivers were recorded');
+    el.append(d);
+  }
+
+  const macroLine = entryMacroLine(entry.macros ?? {});   // §6.1a
+  if (macroLine) {
+    const m = document.createElement('div');
+    m.className = 'macros';
+    text(m, macroLine);
+    el.append(m);
+  }
+
+  const marker = incompleteMarker(entry.incomplete?.fields ?? [], entry);   // §6.4
+  if (marker) {
+    const i = document.createElement('div');
+    i.className = 'incomplete';
+    text(i, marker);
+    el.append(i);
+  }
+
+  /**
+   * §7.1 passive affordance. UNIFORM — every entry line carries it, always,
+   * regardless of score, band or attribute. That uniformity is the whole
+   * argument for why it survives §4.4 and §6.6: it says nothing about this
+   * entry that it does not say about every entry.
+   *
+   * It must never become conditional. A control that appears only on
+   * high-scoring entries IS a verdict, rendered as a control instead of a word.
+   */
+  const ask = document.createElement('button');
+  ask.className = 'swap-ask';
+  text(ask, 'Find an alternative');
+  ask.addEventListener('click', () => showSwap(entry, el, ask));
+  el.append(ask);
+
+  return el;
+}
+
+function renderToday(entries) {
+  const today = localDate();
+  const mine = entriesForDate(entries, today);
+
+  text($('today-load'), todayLine(todayLoad(entries, today)));   // §6.2a — never banded
+
+  const totals = macroTotals(mine);                              // §6.2b
+  text($('today-macros'), dayMacroLine(totals.totals, {
+    partial: totals.partial,
+    omit: dayMacroLinePolicy(mine) === 'OMIT',
+  }) ?? '');
+
+  const host = $('today-entries');
+  host.replaceChildren();
+  if (mine.length === 0) {
+    const p = document.createElement('p');
+    p.className = 'empty';
+    text(p, 'No entries yet today.');
+    host.append(p);
+    return;
+  }
+  for (const e of mine) host.append(renderEntry(e));
+}
+
+function renderLog(entries) {
+  const today = localDate();
+  const win = windowEntries(entries, today);
+  const lastCompleted = windowDates(today)[0];
+
+  text($('window-summary'), windowSummary(
+    lastCompleted,
+    win.reduce((a, e) => a + e.score, 0),
+    { mixedVersions: hasMixedCoefficientVersions(win) },        // §6.3a
+  ));
+  text($('window-normalized'), normalizedLine(normalizeWindow(win)));   // §6.3b
+
+  const host = $('log-days');
+  host.replaceChildren();
+  const days = completedDates(entries, today);
+  if (days.length === 0) {
+    const p = document.createElement('p');
+    p.className = 'empty';
+    text(p, 'No completed days yet.');
+    host.append(p);
+    return;
+  }
+  for (const date of days) {
+    const dayEntries = entriesForDate(entries, date);
+    const block = document.createElement('div');
+    block.className = 'summary';
+
+    const s = document.createElement('div');
+    s.className = 'summary-line';
+    // §6.2 — banding tests the unrounded load (§4.3); the label is text only.
+    text(s, completedDaySummary(date, dailyLoad(entries, date), {
+      mixedVersions: hasMixedCoefficientVersions(dayEntries),
+    }));
+    block.append(s);
+
+    const t = macroTotals(dayEntries);
+    const ml = dayMacroLine(t.totals, {
+      partial: t.partial,
+      omit: dayMacroLinePolicy(dayEntries) === 'OMIT',
+    });
+    if (ml) {
+      const m = document.createElement('div');
+      m.className = 'macros';
+      text(m, ml);
+      block.append(m);
+    }
+    for (const e of dayEntries) block.append(renderEntry(e));
+    host.append(block);
+  }
+}
+
+/**
+ * §7.1: computed on explicit request, never stored (§8.4), never shown
+ * unrequested. §7 computes; §6.5 renders what it computed (§7.0).
+ */
+async function showSwap(entry, host, button) {
+  const existing = host.querySelector('.swap-result');
+  if (existing) { existing.remove(); button.hidden = false; return; }
+
+  const [entries, saved] = await Promise.all([
+    store.allEntries(), store.backend.getAll('saved_products'),
+  ]);
+  const result = requestSwap(entry, entries, saved);
+
+  const box = document.createElement('div');
+  box.className = 'swap-result';
+  for (const line of swapLine(result, entry)) {
+    const p = document.createElement('div');
+    text(p, line);
+    box.append(p);
+  }
+  host.append(box);
+  button.hidden = true;
+}
+
+/**
+ * §4.5 trend. Every constraint there is mandatory and structural: no DAILY_LOAD
+ * points, no tappable points, no drill-down, no colour, no banding, no
+ * trendline, no slope, no projection, no streak count, no comparison to a prior
+ * block, no macro fields.
+ *
+ * A GAP MUST READ AS A GAP. AV-20 omits an empty block while H2 keeps an empty
+ * day inside a window figure — both correct, and they look inconsistent unless
+ * the view says which is which. A missing block is a hollow tick below the axis
+ * at its preserved x position, and the legend states it means no data recorded,
+ * not a block that balanced out to zero.
+ */
+async function renderTrend(entries) {
+  const host = $('trend-plot');
+  host.replaceChildren();
+  const epoch = await store.getTrendEpoch();
+  const blocks = trendBlocks(entries, epoch, localDate());
+  const plotted = blocks.filter((b) => b.plotted);
+
+  if (plotted.length === 0) {
+    const p = document.createElement('p');
+    p.className = 'empty';
+    text(p, 'No completed three-day blocks yet.');
+    host.append(p);
+    text($('trend-legend'), '');
+    return;
+  }
+
+  const W = 320, H = 150, PAD = 24;
+  const loads = plotted.map((b) => b.block_load);
+  const lo = Math.min(0, ...loads), hi = Math.max(0, ...loads);
+  const span = (hi - lo) || 1;
+  const xAt = (i) => PAD + (blocks.length <= 1 ? 0 : (i * (W - 2 * PAD)) / (blocks.length - 1));
+  const yAt = (v) => H - PAD - ((v - lo) / span) * (H - 2 * PAD);
+
+  const ns = 'http://www.w3.org/2000/svg';
+  const el = (tag, attrs) => {
+    const n = document.createElementNS(ns, tag);
+    for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, String(v));
+    return n;
+  };
+
+  const svg = el('svg', {
+    viewBox: `0 0 ${W} ${H}`, width: '100%', role: 'img',
+    'aria-label': `Block loads, ${plotted.length} plotted`,
+  });
+
+  // Zero baseline, so a plotted +0.0 sits visibly ON the line and a gap does not.
+  svg.append(el('line', {
+    x1: PAD, x2: W - PAD, y1: yAt(0), y2: yAt(0),
+    stroke: 'currentColor', 'stroke-opacity': 0.25, 'stroke-width': 1,
+  }));
+
+  for (const b of blocks) {
+    const cx = xAt(b.index);
+    if (b.plotted) {
+      // No colour, no banding: one neutral mark for every value (§4.5).
+      svg.append(el('circle', { cx, cy: yAt(b.block_load), r: 3.5, fill: 'currentColor' }));
+    } else if (b.omitted === 'NO_DATA') {
+      // x position preserved, left empty — never plotted at +0.0 (AV-20).
+      svg.append(el('line', {
+        x1: cx, x2: cx, y1: H - PAD + 2, y2: H - PAD + 8,
+        stroke: 'currentColor', 'stroke-opacity': 0.35, 'stroke-width': 1,
+      }));
+    }
+    // The current block is drawn not at all until its three days are complete.
+  }
+  host.append(svg);
+
+  const gaps = blocks.filter((b) => b.omitted === 'NO_DATA').length;
+  const current = blocks.some((b) => b.omitted === 'CURRENT_INCOMPLETE');
+  text($('trend-legend'),
+    `${plotted.length} block${plotted.length === 1 ? '' : 's'} plotted`
+    + (gaps ? `. ${gaps} tick${gaps === 1 ? '' : 's'} below the axis`
+      + `${gaps === 1 ? ' marks a block' : ' mark blocks'} with no entries — `
+      + 'no data was recorded, which is not the same as a block that balanced out to zero' : '')
+    + (current ? '. The block containing today is not plotted until all three of its days are complete' : '')
+    + '.');
+}
+
+/* §8.2 — the optional USDA key. Device only, never transmitted elsewhere. */
+const USDA_KEY = 'usda_api_key';
+const readKey = () => { try { return localStorage.getItem(USDA_KEY) ?? ''; } catch { return ''; } };
+
+function renderSettings() {
+  $('usda-key').value = readKey();
+  text($('usda-status'), readKey()
+    ? 'A key is saved on this device. USDA is searched alongside Open Food Facts.'
+    : 'No key saved. Open Food Facts is used alone, and anything it does not carry is entered by hand.');
+}
+
+/**
+ * §9.1 method page.
+ *
+ * Every literal string is READ from src/disclosures.js — none is transcribed
+ * here (§9.1 Single source, G3). The tables are BUILT from the live data
+ * modules rather than typed out, so the page cannot drift from the coefficients
+ * and densities it describes.
+ *
+ * The page explains the model; it never defends it. §9.2's provenance statement
+ * is the honest claim, and nothing here softens it into an implication of
+ * validation.
+ */
+function renderMethod() {
+  text($('m-scope'), DISC.SCOPE);
+  text($('m-prov'), DISC.PROVENANCE);
+  text($('m-comp'), DISC.COMPARABILITY);
+  text($('m-macro'), DISC.MACRO_STATEMENT);
+  text($('m-density-rule'), DISC.DENSITY_RULE);
+  text($('m-scaling'), DISC.SCALING_RULE);
+  text($('m-juice'), DISC.JUICE_RULE);
+  text($('m-trend'), DISC.TREND_LAG);
+
+  const table = (host, head, rows) => {
+    host.replaceChildren();
+    const t = document.createElement('table');
+    t.className = 'mtable';
+    const thead = document.createElement('tr');
+    for (const h of head) {
+      const th = document.createElement('th');
+      text(th, h);
+      thead.append(th);
+    }
+    t.append(thead);
+    for (const row of rows) {
+      const tr = document.createElement('tr');
+      for (const cell of row) {
+        const td = document.createElement('td');
+        text(td, cell);
+        tr.append(td);
+      }
+      t.append(tr);
+    }
+    host.append(t);
+  };
+
+  // §2.1/§2.2 in full, including the Display name column (X2).
+  table($('m-attributes'), ['', 'Attribute', 'Shown as', 'Per', 'Score'],
+    ATTRIBUTE_ORDER.map((id) => {
+      const a = ATTRIBUTES[id];
+      const per = a.kind === 'nutrient' ? `${a.per} ${id === 'P2' ? 'mg' : 'g'}`
+        : id === 'P3' ? 'unit (14 g ethanol)'
+        : `serving (${a.servingMassG ?? 'labelled'}${a.servingMassG ? ' g' : ''})`;
+      return [id, a.name, a.displayName, per, (a.coeff > 0 ? '+' : '') + a.coeff.toFixed(1)];
+    }));
+
+  // §3.3 serving masses, from the same table the scorer uses.
+  table($('m-servings'), ['', 'Attribute', 'One serving'],
+    ATTRIBUTE_ORDER.filter((id) => ATTRIBUTES[id].kind === 'classification')
+      .map((id) => [id, ATTRIBUTES[id].name,
+        ATTRIBUTES[id].servingMassG ? `${ATTRIBUTES[id].servingMassG} g`
+          : 'the labelled serving, or 100 g']));
+
+  // §3.3a DMAP table, from data/density-map.json itself.
+  table($('m-densities'), [`Class (${DMAP_VERSION})`, 'g/ml'],
+    Object.entries(DENSITY_MAP).map(([k, v]) => [k.replace(/_/g, ' '), v.toFixed(2)]));
+}
+
+/* ── navigation ───────────────────────────────────────────────────── */
+
+const TITLES = { today: 'Today', log: 'Log', add: 'Add', trend: 'Trend', method: 'Method', settings: 'Settings' };
+let store;
+
+async function show(name) {
+  for (const id of Object.keys(TITLES)) $(id).hidden = id !== name;
+  for (const b of $('nav').querySelectorAll('button')) {
+    if (b.dataset.screen === name) b.setAttribute('aria-current', 'page');
+    else b.removeAttribute('aria-current');
+  }
+  text($('screen-title'), TITLES[name]);
+
+  const entries = await store.allEntries();
+  if (name === 'today') renderToday(entries);
+  if (name === 'log') renderLog(entries);
+  if (name === 'trend') await renderTrend(entries);
+  if (name === 'method') renderMethod();
+  if (name === 'settings') renderSettings();
+}
+
+$('nav').addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-screen]');
+  if (b) show(b.dataset.screen);
+});
+$('go-add').addEventListener('click', () => show('add'));
+
+// §9.1: the method page is linked from every summary view.
+for (const b of document.querySelectorAll('.method-link')) {
+  b.addEventListener('click', () => show('method'));
+}
+
+/* ── §13.2 logging flow ───────────────────────────────────────────── */
+
+const STEPS = ['add-choose', 'add-scan', 'add-search', 'add-saved', 'add-quantity', 'add-manual'];
+const flow = { record: null, raw: null, prefill: {}, stream: null, saved: null };
+
+function step(id, notice) {
+  for (const s of STEPS) $(s).hidden = s !== id;
+  const n = $('add-notice');
+  n.hidden = !notice;
+  text(n, notice ?? '');
+  if (id !== 'add-scan') stopCamera();
+}
+
+/**
+ * §13.2: every failure to resolve offers manual entry rather than dead-ending.
+ * The reason is carried through so the user is told what happened, and the name
+ * and barcode are pre-filled so nothing already known is asked for twice.
+ */
+function toManual(reason, prefill = {}) {
+  flow.prefill = prefill;
+  $('m-name').value = prefill.name ?? '';
+  $('m-mass').value = '';
+  $('m-volume').value = '';
+  $('m-density').value = '';
+  text($('manual-why'), reason ?? '');
+  text($('manual-error'), '');
+  syncP3();
+  step('add-manual');
+}
+
+// §13.5: refusal copy is written in the spec module, never transcribed here.
+const REFUSAL_COPY = DISC.REFUSAL_COPY;
+
+/* ---- camera (§8.6 BarcodeDetector, with fallbacks) ---- */
+
+function stopCamera() {
+  if (flow.stream) { for (const t of flow.stream.getTracks()) t.stop(); flow.stream = null; }
+}
+
+async function startCamera() {
+  const video = $('scan-video');
+  if (!('BarcodeDetector' in window)) {
+    text($('scan-status'), 'This browser cannot scan barcodes. Type the number, or search by name.');
+    return;
+  }
+  try {
+    flow.stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+    video.srcObject = flow.stream;
+    await video.play();
+    text($('scan-status'), 'Point the camera at a barcode.');
+    const detector = new window.BarcodeDetector({ formats: ['ean_13', 'upc_a'] });
+    const tick = async () => {
+      if (!flow.stream) return;
+      try {
+        const found = await detector.detect(video);
+        if (found.length) { stopCamera(); await resolveBarcode(found[0].rawValue); return; }
+      } catch { /* a failed frame is not a failed scan */ }
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  } catch {
+    text($('scan-status'), 'No camera available. Type the number, or search by name.');
+  }
+}
+
+/* ---- resolution (§8.1, §8.2, §3.3c) ---- */
+
+async function resolveBarcode(code) {
+  step('add-scan', 'Looking it up…');
+  const r = await lookupBarcode(code);
+  if (r.status !== LOOKUP.OK) {
+    toManual(REFUSAL_COPY[r.status] ?? REFUSAL_COPY.ERROR, { barcode: code });
+    return;
+  }
+  useRaw(r.raw, 'OFF', { barcode: code, name: r.raw.product_name });
+}
+
+function useRaw(raw, source, prefill) {
+  const res = source === 'OFF' ? resolveFromOFF(raw) : resolveFromUSDA(raw);
+  if (!res.resolved) {
+    toManual(REFUSAL_COPY[res.reason] ?? REFUSAL_COPY.ERROR, prefill);
+    return;
+  }
+  flow.record = res.record;
+  flow.raw = raw;
+  text($('quantity-product'), res.record.name ?? prefill.name ?? '');
+  $('quantity-value').value = '';
+  $('quantity-unit').value = res.record.off?.quantity
+    && ['ml', 'l', 'cl', 'fl oz'].includes(res.record.off.quantity.unit) ? 'ml' : 'g';
+
+  // §3.3 package shortcut, offered only where a net weight exists.
+  const pkg = res.record.off?.quantity;
+  const shortcut = $('quantity-package');
+  if (pkg && Number.isFinite(pkg.value)) {
+    shortcut.hidden = false;
+    text(shortcut, `Whole package — ${pkg.value} ${pkg.unit}`);
+    shortcut.onclick = () => {
+      $('quantity-value').value = String(pkg.value);
+      $('quantity-unit').value = ['ml', 'l', 'cl', 'fl oz'].includes(pkg.unit) ? 'ml' : 'g';
+      previewQuantity();
+    };
+  } else { shortcut.hidden = true; }
+
+  text($('quantity-preview'), '');
+  step('add-quantity');
+}
+
+/* ---- quantity and write (§3.3, §8.4) ---- */
+
+function currentQuantity() {
+  const value = Number($('quantity-value').value);
+  return Number.isFinite(value) && value > 0
+    ? { value, unit: $('quantity-unit').value } : null;
+}
+
+function previewQuantity() {
+  const q = currentQuantity();
+  if (!q || !flow.record) { text($('quantity-preview'), ''); return; }
+  const scored = scoreEntry(flow.record, q);
+  if (!scored.created) {
+    text($('quantity-preview'), REFUSAL_COPY[scored.reason] ?? '');
+    return;
+  }
+  const preview = buildEntry(scored, flow.record, {
+    entry_id: 'preview', food_name: flow.record.name ?? '', quantity: q, local_date: localDate(),
+  });
+  text($('quantity-preview'), entryLine(preview).join(' — '));
+}
+
+async function writeEntry(record, quantity, foodName) {
+  const scored = scoreEntry(record, quantity);
+  if (!scored.created) {
+    toManual(REFUSAL_COPY[scored.reason] ?? REFUSAL_COPY.ERROR, { name: foodName });
+    return false;
+  }
+  const entry = buildEntry(scored, record, {
+    entry_id: `e-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    food_name: foodName,
+    quantity,
+    local_date: localDate(),
+  });
+  await store.putEntry(entry);
+  return true;
+}
+
+/* ---- manual entry (§8.5) ---- */
+
+const NUTRIENT_FIELDS = [
+  ['added_sugar_g', 'Added sugar (g)'], ['sodium_mg', 'Sodium (mg)'],
+  ['saturated_fat_g', 'Saturated fat (g)'], ['fiber_g', 'Fibre (g)'],
+];
+const MACRO_FIELDS_UI = [
+  ['energy_kcal', 'Calories (kcal)'], ['protein_g', 'Protein (g)'],
+  ['carbohydrate_g', 'Carbohydrate (g)'], ['fat_g', 'Fat (g)'],
+];
+const CLASSIFICATION_FIELDS = [
+  ['P4', 'Refined grain'], ['P5', 'Ultra-processed'], ['P6', 'Processed meat'],
+  ['P7', 'Deep-fried'], ['A2', 'Omega-3 fish'], ['A3', 'Non-starchy vegetable'],
+  ['A4', 'Fruit'], ['A5', 'Nuts or seeds'], ['A6', 'Legumes'],
+  ['A7', 'Whole grain'], ['A8', 'Olive oil'],
+];
+
+function buildManualForm() {
+  const rows = (host, fields) => {
+    host.replaceChildren();
+    for (const [key, label] of fields) {
+      const row = document.createElement('label');
+      row.className = 'nf';
+      const l = document.createElement('span'); text(l, label);
+      const input = document.createElement('input');
+      input.id = `mf-${key}`; input.inputMode = 'decimal'; input.autocomplete = 'off';
+      const absent = document.createElement('label');
+      absent.className = 'row';
+      const cb = document.createElement('input');
+      cb.type = 'checkbox'; cb.id = `mf-${key}-absent`;
+      const cbl = document.createElement('span'); text(cbl, 'not stated');
+      cb.addEventListener('change', () => { input.disabled = cb.checked; if (cb.checked) input.value = ''; });
+      absent.append(cb, cbl);
+      row.append(l, input, absent);
+      host.append(row);
+    }
+  };
+  rows($('m-nutrients'), NUTRIENT_FIELDS);
+  rows($('m-macros'), MACRO_FIELDS_UI);
+
+  const host = $('m-classifications');
+  host.replaceChildren();
+  for (const [id, label] of CLASSIFICATION_FIELDS) {
+    const wrap = document.createElement('label');
+    wrap.className = 'row';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox'; cb.id = `mc-${id}`;
+    const l = document.createElement('span'); text(l, label);
+    wrap.append(cb, l);
+    host.append(wrap);
+  }
+}
+
+/**
+ * K2 / §8.5: "The UI must not allow P3 to be selected on a manual entry lacking
+ * a volume." Built as a disabled control, not a rejected write — the constraint
+ * is on the form, so the invalid state is never reachable and the rejection
+ * path is never the user's first contact with the rule.
+ */
+function syncP3() {
+  const volume = Number($('m-volume').value);
+  const ok = Number.isFinite(volume) && volume > 0;
+  const box = $('m-p3');
+  box.disabled = !ok;
+  if (!ok) box.checked = false;
+  $('m-abv-wrap').hidden = !box.checked;
+  const label = $('m-p3-wrap').querySelector('span span');
+  text(label, ok ? 'Alcohol' : 'Alcohol — enter a volume above to enable');
+}
+
+function readManual() {
+  const read = (fields) => Object.fromEntries(fields.map(([key]) => {
+    if ($(`mf-${key}-absent`).checked) return [key, ABSENT];
+    const v = Number($(`mf-${key}`).value);
+    return [key, Number.isFinite(v) ? v : ABSENT];
+  }));
+  const classifications = {};
+  for (const [id] of CLASSIFICATION_FIELDS) if ($(`mc-${id}`).checked) classifications[id] = true;
+  if ($('m-p3').checked) classifications.P3 = { abv_percent: Number($('m-abv').value) };
+
+  const num = (id) => { const v = Number($(id).value); return Number.isFinite(v) && v > 0 ? v : undefined; };
+  return {
+    name: $('m-name').value.trim() || 'Unnamed item',
+    nutrients: read(NUTRIENT_FIELDS),
+    macros: read(MACRO_FIELDS_UI),
+    classifications,
+    serving_mass_g: num('m-mass'),
+    volume_ml: num('m-volume'),
+    density_g_per_ml: num('m-density'),
+  };
+}
+
+/* ---- saved products (§8.5a) ---- */
+
+async function renderSaved() {
+  const host = $('saved-list');
+  host.replaceChildren();
+  const saved = await store.backend.getAll('saved_products');
+  if (saved.length === 0) {
+    const p = document.createElement('p');
+    p.className = 'empty';
+    text(p, 'Nothing saved yet. A manual entry can be saved when you log it.');
+    host.append(p);
+    return;
+  }
+  for (const s of saved) {
+    const b = document.createElement('button');
+    b.className = 'result';
+    text(b, s.name);
+    b.addEventListener('click', () => {
+      flow.record = recordFromSaved(s);
+      flow.saved = s;
+      text($('quantity-product'), s.name);
+      $('quantity-value').value = String(s.record.manual?.serving_mass_g ?? '');
+      $('quantity-unit').value = 'g';
+      $('quantity-package').hidden = true;
+      previewQuantity();
+      step('add-quantity');
+    });
+    host.append(b);
+  }
+}
+
+/* ---- wiring ---- */
+
+buildManualForm();
+
+$('add-choose').addEventListener('click', async (e) => {
+  const b = e.target.closest('button[data-path]');
+  if (!b) return;
+  if (b.dataset.path === 'scan') { step('add-scan'); startCamera(); }
+  if (b.dataset.path === 'search') { step('add-search'); }
+  if (b.dataset.path === 'saved') { step('add-saved'); await renderSaved(); }
+  if (b.dataset.path === 'manual') { toManual('Enter the figures from the label.'); }
+});
+
+$('add').addEventListener('click', (e) => {
+  if (e.target.closest('button[data-back]')) step('add-choose');
+});
+
+$('scan-lookup').addEventListener('click', () => {
+  const code = $('scan-manual-code').value.trim();
+  if (code) resolveBarcode(code);
+});
+
+$('usda-save').addEventListener('click', () => {
+  try { localStorage.setItem(USDA_KEY, $('usda-key').value.trim()); } catch { /* storage off */ }
+  renderSettings();
+});
+$('usda-clear').addEventListener('click', () => {
+  try { localStorage.removeItem(USDA_KEY); } catch { /* storage off */ }
+  renderSettings();
+});
+
+$('search-go').addEventListener('click', async () => {
+  const q = $('search-q').value.trim();
+  if (!q) return;
+  const host = $('search-results');
+  host.replaceChildren();
+  const r = await searchOFF(q);
+
+  // §8.2: USDA is optional. With no key it returns NO_API_KEY and is skipped;
+  // OFF alone is the default and the app is fully functional that way.
+  const usda = await searchUSDA(q, readKey());
+  if (usda.status === LOOKUP.OK) {
+    for (const raw of usda.results) {
+      const b = document.createElement('button');
+      b.className = 'result';
+      text(b, `${raw.description} — USDA ${raw.dataType}`);
+      b.addEventListener('click', () => useRaw(raw, 'USDA', { name: raw.description }));
+      host.append(b);
+    }
+  }
+
+  if (r.status !== LOOKUP.OK && usda.status !== LOOKUP.OK) {
+    toManual(REFUSAL_COPY[r.status] ?? REFUSAL_COPY.ERROR, { name: q });
+    return;
+  }
+  for (const raw of r.results) {
+    const b = document.createElement('button');
+    b.className = 'result';
+    text(b, raw.product_name || '(no name)');
+    b.addEventListener('click', () => useRaw(raw, 'OFF', { name: raw.product_name }));
+    host.append(b);
+  }
+});
+
+$('quantity-value').addEventListener('input', previewQuantity);
+$('quantity-unit').addEventListener('change', previewQuantity);
+
+$('quantity-confirm').addEventListener('click', async () => {
+  const q = currentQuantity();
+  if (!q) { text($('quantity-preview'), 'Enter an amount.'); return; }
+  const name = flow.saved?.name ?? flow.record.name ?? '';
+  if (await writeEntry(flow.record, q, name)) { flow.saved = null; await show('today'); }
+});
+
+$('m-volume').addEventListener('input', syncP3);
+$('m-p3').addEventListener('change', syncP3);
+
+$('manual-submit').addEventListener('click', async () => {
+  text($('manual-error'), '');
+  let record;
+  try {
+    record = createManualRecord(readManual());
+  } catch (err) {
+    text($('manual-error'), err.detail ?? String(err.message ?? err));
+    return;
+  }
+  const mass = record.manual.serving_mass_g;
+  const quantity = mass !== null
+    ? { value: mass, unit: 'g' }
+    : { value: record.manual.volume_ml, unit: 'ml' };
+
+  if ($('m-save').checked) {
+    await saveProduct(store.backend, record, { name: record.name });
+  }
+  if (await writeEntry(record, quantity, record.name)) await show('today');
+});
+
+store = await openStore();
+if (store.backend instanceof MemoryBackend) {
+  const n = document.createElement('div');
+  n.className = 'notice';
+  // §13.3 H4: the one standing message permitted — factual, about the app.
+  text(n, "Not saving — this device's storage is unavailable. "
+        + 'Entries will be lost when you close the app.');
+  document.querySelector('main').prepend(n);
+}
+await show('today');
+
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('./sw.js').catch(() => { /* offline is best-effort */ });
+}
+</script>
+</body>
+</html>
