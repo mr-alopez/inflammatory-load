@@ -263,6 +263,19 @@ check('§8.6: a service worker caches the shell and engine modules',
   /caches\.open/.test(code.sw) && /addAll/.test(code.sw) && /src\/display\.js/.test(sw));
 check('§8.6: fetch handler serves from cache first',
   /caches\.match/.test(code.sw));
+
+/**
+ * §8.6: a shell fetch must bypass the BROWSER's HTTP cache, not only ours.
+ * Pages serves assets with max-age=600; without this a deploy can pair a new
+ * index.html with a ten-minute-old module and fail to load at all.
+ */
+const bypassesHttpCache = (src) => /cache:\s*['"]reload['"]/.test(src);
+check('§8.6: the shell fetch bypasses the browser HTTP cache',
+  bypassesHttpCache(code.sw));
+discriminates('§8.6 HTTP-cache bypass', bypassesHttpCache, {
+  rejects: ["fetch(new Request(r, { cache: 'reload' }))"],
+  accepts: ['fetch(e.request)', "fetch(url, { headers: { Accept: 'application/json' } })"],
+});
 check('§13.3: the app opens without IndexedDB rather than dead-ending',
   /MemoryBackend/.test(code.html), 'falls back to an in-memory store');
 /**

@@ -19,7 +19,7 @@
  * notification or badge reporting a load, and the way to guarantee that is to
  * register no such handler at all.
  */
-const CACHE_VERSION = 'v7';
+const CACHE_VERSION = 'v8';
 const CACHE = `inflammatory-load-shell-${CACHE_VERSION}`;
 
 /**
@@ -68,7 +68,12 @@ self.addEventListener('fetch', (e) => {
 
   if (e.request.mode === 'navigate' || isShellCode(url)) {
     e.respondWith(
-      fetch(e.request)
+      // `cache: 'reload'` bypasses the BROWSER's HTTP cache, not just ours.
+      // GitHub Pages serves assets with max-age=600, and network-first without
+      // this still reads that cache — so a deploy could leave a returning user
+      // with a new index.html and a ten-minute-old module beside it. That is a
+      // module-not-found error on load, which is how it was found.
+      fetch(new Request(e.request, { cache: 'reload' }))
         .then((res) => {
           const copy = res.clone();
           caches.open(CACHE).then((c) => c.put(e.request, copy));
