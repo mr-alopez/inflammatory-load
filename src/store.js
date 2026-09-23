@@ -23,6 +23,7 @@ export const STORE_ERROR = {
   MISSING_REQUIRED_FIELD: 'MISSING_REQUIRED_FIELD',
   UNKNOWN_FIELD: 'UNKNOWN_FIELD',
   TREND_EPOCH_IMMUTABLE: 'TREND_EPOCH_IMMUTABLE',
+  NO_SUCH_ENTRY: 'NO_SUCH_ENTRY',
 };
 
 export class StoreRejection extends Error {
@@ -145,7 +146,36 @@ export class EntryStore {
     await this.backend.put(STORES.META, META_KEYS.TREND_EPOCH, date);
   }
 
+  /**
+   * Remove an entry logged today. NOT an edit path — §8.4 stands: no field of a
+   * stored entry is mutable, and a correction is still a new entry. This exists
+   * for the accidental add, removed on the day it was made.
+   *
+   * **Today only.** §8.4's "prior days are read-only without exception" governs
+   * removal as well as mutation, and removal is the stronger operation. A
+   * completed day's `DAY_LOAD`, its §6.3 summary, its band, its §4.6
+   * normalization and its §4.5 block are all read from stored entries, so
+   * deleting one rewrites a day the user has already been shown a figure for.
+   *
+   * §4.5 is unchanged: `TREND_EPOCH` is deliberately untouched. The guard does
+   * narrow when that clause can fire — a first entry is now deletable only on
+   * the day it was logged — but it does not alter what it guarantees.
+   */
   async deleteEntry(entryId) {
+    const entry = await this.backend.get(STORES.ENTRIES, entryId);
+
+    // §8.4 "Rejection is loud": deleting nothing must not report success. A
+    // caller that believes it removed an entry and did not is the same
+    // audit-trail failure the write path refuses.
+    if (!entry) throw new StoreRejection(STORE_ERROR.NO_SUCH_ENTRY, `no entry ${entryId}`);
+
+    if (this.today && entry.local_date < this.today) {
+      throw new StoreRejection(
+        STORE_ERROR.PRIOR_DAY_READ_ONLY,
+        `entry ${entryId} is dated ${entry.local_date}, before ${this.today} (§8.4)`
+      );
+    }
+
     await this.backend.delete(STORES.ENTRIES, entryId);
     // TREND_EPOCH deliberately untouched (§4.5).
   }

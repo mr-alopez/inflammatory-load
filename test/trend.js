@@ -219,9 +219,22 @@ async function suiteT() {
   check('T', 'TREND_EPOCH set at first log', (await store.getTrendEpoch()) === '2026-09-10');
 
   // §4.5: deleting the first entry does not move it.
-  await store.deleteEntry('t1');
+  //
+  // Deletion is today-only (§8.4), so this is now reachable only on the day the
+  // first entry was logged — a store dated 2026-09-10, not 2026-09-15. That
+  // narrowing is the point of the next assertion.
+  const onTheDay = new EntryStore(backend, { today: '2026-09-10' });
+  await onTheDay.deleteEntry('t1');
   check('T', 'deleting the first entry does not move TREND_EPOCH',
     (await store.getTrendEpoch()) === '2026-09-10');
+
+  // §8.4: and once that day is over, the first entry cannot be deleted at all.
+  await store.putEntry(mk('t1b', '2026-09-10'));
+  let priorDayCode = null;
+  try { await store.deleteEntry('t1b'); } catch (e) { priorDayCode = e.code; }
+  check('T', '§8.4: a prior-day entry cannot be deleted',
+    priorDayCode === 'PRIOR_DAY_READ_ONLY', `code = ${priorDayCode}`);
+  await onTheDay.deleteEntry('t1b');   // clear it again for the wipe count below
 
   // [OPEN-9] DECIDED: a full wipe clears it, atomically with the entries.
   const report = await wipeAll(backend);
@@ -237,7 +250,7 @@ async function suiteT() {
 
   // KNOWN ASYMMETRY, reported: deleting every entry one by one is not a wipe.
   const b2 = new MemoryBackend();
-  const s2 = new EntryStore(b2, { today: '2026-09-15' });
+  const s2 = new EntryStore(b2, { today: '2026-09-10' });   // deletable on its own day only
   await s2.putEntry(mk('u1', '2026-09-10'));
   await s2.deleteEntry('u1');
   check('T', 'ASYMMETRY: deleting every entry individually leaves TREND_EPOCH standing',

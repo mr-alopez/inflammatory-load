@@ -93,9 +93,34 @@ check('[string literals + markup text: index.html] §6.6: no verdict word or imp
 
 const css = (html.match(/<style>([\s\S]*?)<\/style>/) ?? [, ''])[1];
 const entryRules = [...css.matchAll(/\.entry[^{]*\{([^}]*)\}/g)].map((m) => m[1]);
-const colouredEntry = entryRules.filter((r) => /(^|[^-])color\s*:\s*(?!var\(--fg\)|var\(--dim\)|inherit)/.test(r));
+
+/**
+ * §4.4: an entry may use the neutral palette and nothing else.
+ *
+ * The value is CAPTURED and then tested. The previous form put the palette in a
+ * negative lookahead after `\s*`, which backtracks to zero width — the lookahead
+ * then ran against a string starting with a space, matched none of its
+ * alternatives, and reported every declaration as an offender, including the
+ * three it named as allowed. It survived because no `.entry` rule declared a
+ * colour until removal added one, so the check had never once fired on the
+ * thing it exists to judge (§2.5).
+ */
+const NEUTRAL = /^(var\(--fg\)|var\(--dim\)|inherit)$/;
+const entryColours = (rule) =>
+  [...rule.matchAll(/(?:^|[^-\w])color\s*:\s*([^;}]+)/g)].map((m) => m[1].trim());
+const colouredEntry = entryRules.filter((r) => entryColours(r).some((v) => !NEUTRAL.test(v)));
 check('[style: index.html <style>] §4.4: no .entry rule sets a colour outside the neutral palette',
   colouredEntry.length === 0, colouredEntry.join(' | ') || `${entryRules.length} entry rules, all neutral`);
+
+// The check above passed for years by rejecting nothing it was shown. Prove it
+// separates the two cases it claims to separate, in both directions.
+check('§4.4 check discriminates: an off-palette entry colour is caught',
+  entryColours('.x { color: #c0392b; }').some((v) => !NEUTRAL.test(v)));
+check('§4.4 check discriminates: the neutral palette is allowed',
+  ['color: var(--dim); }', 'color:var(--fg);', 'color: inherit;']
+    .every((r) => entryColours(r).every((v) => NEUTRAL.test(v))));
+check('§4.4 check discriminates: border-color is not mistaken for color',
+  entryColours('.x { border-color: var(--fg); }').length === 0);
 
 check('§4.4: no band label reaches an entry — bands come only from day/window helpers',
   !/bandDaily|bandWindow/.test(code.html),

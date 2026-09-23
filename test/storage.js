@@ -1,10 +1,11 @@
 /**
  * Storage layer tests — spec v0.6 §11 step 2.
  *
- * Three suites, reported separately:
+ * Four suites, reported separately:
  *   A. AV-21 — the §8.6a PRE_SCHEMA_2 carve-out
  *   B. Immutability (§8.4) — the property the audit trail rests on
  *   C. Migration (§8.6) — adds fields, alters no value
+ *   D. Removal (§8.4) — today only, and never an edit path
  */
 
 import { EntryStore, StoreRejection, STORE_ERROR, migrateStore, migrateEntryV1toV2, migrateEntryV2toV3,
@@ -16,7 +17,7 @@ import { buildEntry } from '../src/entry.js';
 import { fixtures } from './fixtures.js';
 
 let pass = 0, fail = 0;
-const results = { A: [], B: [], C: [] };
+const results = { A: [], B: [], C: [], D: [] };
 
 function check(suite, label, ok, note = '') {
   ok ? pass++ : fail++;
@@ -227,18 +228,86 @@ async function suiteC() {
   check('C', 'migration preserves score across the 2->3 hop', v3.score === snapshot.score);
 }
 
+/* ================================================================== *
+ * SUITE D — §8.4 removal is today-only
+ *
+ * Deletion exists for the accidental add. It is NOT an edit path: §8.4 still
+ * holds that no field of a stored entry is mutable, and that prior days are
+ * read-only without exception — removal included, because removal is the
+ * stronger operation.
+ *
+ * Every assertion here is written so it can fail on the defect it names. The
+ * prior-day checks fail if the guard is removed; the survivor checks fail if
+ * delete removes more than it was asked to.
+ * ================================================================== */
+
+async function suiteD() {
+  const backend = new MemoryBackend();
+  const store = new EntryStore(backend, { today: '2026-09-15' });
+
+  const a = entryFromScoring('AV-1', { entry_id: 'd-a', local_date: '2026-09-15' });
+  const b = entryFromScoring('AV-7', { entry_id: 'd-b', local_date: '2026-09-15' });
+  const old = entryFromScoring('AV-1', { entry_id: 'd-old', local_date: '2026-09-14' });
+  await store.putEntry(old);   // first, so it owns TREND_EPOCH
+  await store.putEntry(a);
+  await store.putEntry(b);
+
+  const bBefore = JSON.stringify(await store.getEntry('d-b'));
+
+  // 1. The accidental add goes away.
+  await store.deleteEntry('d-a');
+  check('D', "today's entry is removed", (await store.getEntry('d-a')) === undefined);
+
+  // 2. ...and nothing else does. A delete that emptied the store would pass
+  //    assertion 1 on its own; this is what makes that one mean something.
+  const left = (await store.allEntries()).map((e) => e.entry_id).sort();
+  check('D', 'only the named entry is removed',
+    JSON.stringify(left) === JSON.stringify(['d-b', 'd-old']), `left: ${left}`);
+
+  // 3. Removal is not an edit. The survivor is unchanged in every field.
+  check('D', 'a neighbouring entry is untouched, field for field',
+    JSON.stringify(await store.getEntry('d-b')) === bBefore);
+
+  // 4. §8.4: prior days are read-only, removal included.
+  await rejects('D', '§8.4: a prior-day entry cannot be removed',
+    () => store.deleteEntry('d-old'), STORE_ERROR.PRIOR_DAY_READ_ONLY);
+
+  // 5. ...and the refusal is a refusal, not a throw after the fact. Without
+  //    this, a guard that deleted and then threw would pass assertion 4.
+  check('D', 'the refused entry is still stored',
+    (await store.getEntry('d-old'))?.entry_id === 'd-old');
+
+  // 6. §8.4 "Rejection is loud": deleting nothing must not report success.
+  await rejects('D', 'removing an unknown entry is refused, not a silent no-op',
+    () => store.deleteEntry('d-nonexistent'), STORE_ERROR.NO_SUCH_ENTRY);
+
+  // 7. §4.5: the epoch does not move, even though its own entry is now the
+  //    oldest surviving one.
+  check('D', 'TREND_EPOCH does not move when an entry is removed',
+    (await store.getTrendEpoch()) === '2026-09-14');
+
+  // 8. The removal reaches what gets rendered: the day's load is the sum of
+  //    the survivors, not a stale total.
+  const todays = (await store.allEntries()).filter((e) => e.local_date === '2026-09-15');
+  check('D', "the day's load reflects the removal",
+    todays.length === 1 && Math.abs(todays.reduce((s, e) => s + e.score, 0) - b.score) < 1e-9,
+    `${todays.length} entries, sum ${todays.reduce((s, e) => s + e.score, 0)}, expected ${b.score}`);
+}
+
 /* ---------------- run ---------------- */
 
 await suiteA();
 await suiteB();
 await suiteC();
+await suiteD();
 
 const heads = {
   A: 'SUITE A — AV-21, §8.6a PRE_SCHEMA_2 carve-out',
   B: 'SUITE B — §8.4 immutability (reported separately)',
   C: 'SUITE C — §8.6 migration adds fields, alters no value',
+  D: 'SUITE D — §8.4 removal is today-only',
 };
-for (const k of ['A', 'B', 'C']) {
+for (const k of ['A', 'B', 'C', 'D']) {
   console.log(`\n${heads[k]}`);
   console.log('='.repeat(heads[k].length));
   for (const line of results[k]) console.log(line);

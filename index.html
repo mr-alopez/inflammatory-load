@@ -74,6 +74,17 @@
     border-radius: 8px; cursor: pointer; }
   .swap-result { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--rule);
     font-size: 13.5px; color: var(--dim); }
+  /* Press-and-hold removal — today's entries only (§8.4). */
+  .entry.removable { -webkit-user-select: none; user-select: none;
+    -webkit-touch-callout: none; }
+  .entry.holding { border-color: var(--fg); }
+  .entry-remove { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--rule);
+    font-size: 13.5px; color: var(--dim); }
+  .entry-remove .row { margin-top: 8px; }
+  .entry-remove button { flex: 1; padding: 8px; font: inherit; font-size: 13.5px;
+    border-radius: 8px; border: 1px solid var(--rule); background: var(--card);
+    color: var(--fg); cursor: pointer; }
+  .hold-hint { color: var(--dim); font-size: 13px; margin: 10px 0 0; }
   .nf { display: grid; grid-template-columns: 1fr auto auto; gap: 8px;
         align-items: center; margin: 7px 0; font-size: 13.5px; }
   .mtable { width: 100%; border-collapse: collapse; font-size: 13px; margin: 8px 0 4px; }
@@ -371,7 +382,97 @@ function renderEntry(entry) {
   ask.addEventListener('click', () => showSwap(entry, el, ask));
   el.append(ask);
 
+  // Removal is offered only where §8.4 permits it: an entry dated today. The
+  // Log view lists completed days only, so the gesture is never wired there.
+  //
+  // This is conditional where §7.1's affordance is uniform, and deliberately
+  // so: §7.1's uniformity argument is that a control appearing on some entries
+  // and not others reads as a verdict on those entries. A control keyed to the
+  // calendar date says nothing about the food.
+  if (entry.local_date === localDate()) attachHoldToRemove(el, entry);
+
   return el;
+}
+
+/** Long-press duration. Below ~500ms this fires on a firm tap. */
+const HOLD_MS = 600;
+/** Movement that means the user is scrolling, not holding. */
+const HOLD_SLOP_PX = 10;
+
+function attachHoldToRemove(el, entry) {
+  el.classList.add('removable');
+
+  let timer = null, startX = 0, startY = 0;
+  const cancel = () => {
+    clearTimeout(timer);
+    timer = null;
+    el.classList.remove('holding');
+  };
+
+  el.addEventListener('pointerdown', (e) => {
+    // Never arm on the swap button — its own click must not be a hold target.
+    if (e.target.closest('.swap-ask, .entry-remove')) return;
+    startX = e.clientX; startY = e.clientY;
+    el.classList.add('holding');
+    timer = setTimeout(() => { cancel(); askRemove(el, entry); }, HOLD_MS);
+  });
+  el.addEventListener('pointermove', (e) => {
+    if (timer && (Math.abs(e.clientX - startX) > HOLD_SLOP_PX
+      || Math.abs(e.clientY - startY) > HOLD_SLOP_PX)) cancel();
+  });
+  for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) {
+    el.addEventListener(ev, cancel);
+  }
+
+  // A long press on touch raises the browser's own callout, and right-click
+  // raises its menu. Suppress both here and use the right-click as the
+  // pointer-free route to the same confirmation.
+  el.addEventListener('contextmenu', (e) => {
+    if (e.target.closest('.entry-remove')) return;
+    e.preventDefault();
+    cancel();
+    askRemove(el, entry);
+  });
+}
+
+/**
+ * Removal is irreversible and there is no undo, so it is always confirmed.
+ * The confirmation is inline rather than a native dialog: the entry being
+ * removed stays on screen and visibly attached to the question.
+ */
+function askRemove(el, entry) {
+  if (el.querySelector('.entry-remove')) return;
+
+  const box = document.createElement('div');
+  box.className = 'entry-remove';
+
+  const q = document.createElement('div');
+  text(q, `Remove ${entry.food_name}? This cannot be undone.`);
+  box.append(q);
+
+  const row = document.createElement('div');
+  row.className = 'row';
+  const yes = document.createElement('button');
+  text(yes, 'Remove');
+  const no = document.createElement('button');
+  text(no, 'Keep');
+  row.append(yes, no);
+  box.append(row);
+  el.append(box);
+
+  no.addEventListener('click', () => box.remove());
+  yes.addEventListener('click', async () => {
+    yes.disabled = true; no.disabled = true;
+    try {
+      await store.deleteEntry(entry.entry_id);
+      await show('today');
+    } catch (err) {
+      // §8.4: a rejection names the rule that fired, and it is shown, not
+      // swallowed. The entry is still there; the user must be able to see why.
+      row.remove();
+      text(q, `Not removed — ${err.code ?? 'ERROR'}: ${err.detail ?? err.message}`);
+    }
+  });
 }
 
 function renderToday(entries) {
@@ -396,6 +497,13 @@ function renderToday(entries) {
     return;
   }
   for (const e of mine) host.append(renderEntry(e));
+
+  // The gesture is otherwise undiscoverable. Factual, about the app, never
+  // about the entries (§13.3).
+  const hint = document.createElement('p');
+  hint.className = 'hold-hint';
+  text(hint, 'Press and hold an entry to remove it. Today only — earlier days are final.');
+  host.append(hint);
 }
 
 function renderLog(entries) {
