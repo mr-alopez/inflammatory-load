@@ -13,6 +13,7 @@ import { scoreEntry, resolveVolumeDensity, QUANTITY_UNITS, ENTRY_VOLUME_UNITS } 
 import { buildEntry } from '../src/entry.js';
 import { parseAmount, orderSearchResults, searchResultLabel } from '../src/sources.js';
 import { classifyBulk, bulkDensity, BDMAP_VERSION, BULK_DENSITY_MAP, BULK_DERIVATIONS } from '../src/bulk-density-map.js';
+import { usdaDerivedDensity } from '../src/client.js';
 import { entryLine, quantityAsEntered, formatAmount } from '../src/display.js';
 
 const TOL = 1e-6;
@@ -218,6 +219,41 @@ function suiteAC() {
     labels.every(([, detail]) => detail.length > 0));
   discrimination.push(['§8.1', 'listing OFF before USDA', 'categorical',
     'a "coffee" search surfaces branded drinks above "Coffee, brewed"']);
+
+  /**
+   * §3.3a step 1 from USDA's declared foodPortions — the only route by which a
+   * USDA product is enterable by volume, since USDA carries no categories_tags
+   * for steps 2 or 2b to key on.
+   */
+  const cup = usdaDerivedDensity([{ amount: 1, gramWeight: 237, measureUnit: { name: 'cup' } }]);
+  near('AC', '§3.3a step 1: 1 cup = 237 g gives volume 236.588 ml', cup.volume_ml, 236.5882365);
+  eq('AC', '§3.3a step 1: the mass is carried through', cup.mass_g, 237);
+  near('AC', '§3.3a step 1: 8 fl oz resolves to the same volume',
+    usdaDerivedDensity([{ amount: 8, gramWeight: 237, measureUnit: { name: 'fl oz' } }]).volume_ml,
+    236.5882365);
+  eq('AC', '§3.3a step 1: a non-volume portion is skipped, not guessed at',
+    usdaDerivedDensity([{ amount: 1, gramWeight: 50, measureUnit: { name: 'undetermined' } }]), null);
+  check('AC', '§3.3a step 1: a volume portion is found past a non-volume one',
+    usdaDerivedDensity([
+      { amount: 1, gramWeight: 50, measureUnit: { name: 'undetermined' } },
+      { amount: 1, gramWeight: 237, measureUnit: { name: 'cup' } },
+    ])?.mass_g === 237);
+  eq('AC', '§3.3a step 1: no portions means no derivation, never a default',
+    usdaDerivedDensity([]), null);
+  eq('AC', '§3.3a step 1: a zero gram weight is refused',
+    usdaDerivedDensity([{ amount: 1, gramWeight: 0, measureUnit: { name: 'cup' } }]), null);
+
+  // A USDA record carrying portions derives; one without is gram-only.
+  const usdaCoffee = { ...coffee, source: 'USDA', density_class: null,
+    derived_density: { mass_g: 237, volume_ml: 236.5882365 } };
+  eq('AC', '§3.3a: a USDA record with portions resolves a volume density',
+    resolveVolumeDensity(usdaCoffee).provenance, 'DERIVED');
+  const usdaNoPortions = { ...coffee, source: 'USDA', density_class: null, bulk_class: null };
+  delete usdaNoPortions.derived_density;
+  eq('AC', '§3.3a: a USDA record without portions is gram-only',
+    resolveVolumeDensity(usdaNoPortions).density, null);
+  discrimination.push(['§3.3a', 'reading USDA portions from /foods/search', 'categorical',
+    'search carries no foodPortions, so no density derives and the worked case is gram-only']);
 }
 
 /* ---------------- run ---------------- */

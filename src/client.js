@@ -195,3 +195,22 @@ export function shapeUSDA(f) {
     nutrients,
   };
 }
+
+/**
+ * §8.2 detail lookup — the only place `foodPortions` is available.
+ *
+ * USDA's /foods/search response does NOT carry foodPortions; only
+ * /food/{fdcId} does. Without them there is no §3.3a step 1 derivation, so a
+ * USDA liquid or scoopable solid is gram-only — which is the worked case in
+ * the v1.8 handoff failing on its first component.
+ *
+ * One request, made when a result is SELECTED rather than for every result, so
+ * a search still costs one call.
+ */
+export async function lookupUSDA(fdcId, apiKey) {
+  if (!apiKey) return { status: LOOKUP.NO_API_KEY };
+  const r = await getJson(`${USDA_BASE}/food/${encodeURIComponent(fdcId)}?api_key=${encodeURIComponent(apiKey)}`);
+  if (r.status !== LOOKUP.OK) return r;
+  if (!r.body?.fdcId) return { status: LOOKUP.NOT_FOUND };
+  return { status: LOOKUP.OK, raw: shapeUSDA(r.body), source: 'USDA' };
+}

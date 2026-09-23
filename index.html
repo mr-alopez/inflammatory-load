@@ -343,7 +343,7 @@ import { resolveFromOFF, resolveFromUSDA, parseAmount,
   orderSearchResults, searchResultLabel } from './src/sources.js';
 import { createManualRecord, saveProduct, recordFromSaved, ABSENT } from './src/manual.js';
 import { buildEntry } from './src/entry.js';
-import { lookupBarcode, searchOFF, searchUSDA, LOOKUP } from './src/client.js';
+import { lookupBarcode, searchOFF, searchUSDA, lookupUSDA, LOOKUP } from './src/client.js';
 import * as DISC from './src/disclosures.js';
 import { ATTRIBUTES, ATTRIBUTE_ORDER, DENSITY_MAP, DMAP_VERSION } from './src/coefficients.js';
 import { BULK_DENSITY_MAP, BDMAP_VERSION } from './src/bulk-density-map.js';
@@ -942,7 +942,15 @@ async function resolveBarcode(code) {
   useRaw(r.raw, 'OFF', { barcode: code, name: r.raw.product_name });
 }
 
-function useRaw(raw, source, prefill) {
+async function useRaw(raw, source, prefill) {
+  // §8.2 / §3.3a step 1: USDA's search response carries no foodPortions, so a
+  // selected USDA result is re-read from the detail endpoint to pick up the
+  // declared mass-and-volume pair. Without it no density derives and the
+  // product is gram-only. One request, on selection, not per result.
+  if (source === 'USDA' && !raw.derived_density && raw.fdcId) {
+    const detail = await lookupUSDA(raw.fdcId, readKey());
+    if (detail.status === LOOKUP.OK) raw = { ...raw, ...detail.raw };
+  }
   const res = source === 'OFF' ? resolveFromOFF(raw) : resolveFromUSDA(raw);
   if (!res.resolved) {
     toManual(REFUSAL_COPY[res.reason] ?? REFUSAL_COPY.ERROR, prefill);
