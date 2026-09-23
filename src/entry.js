@@ -58,7 +58,12 @@ export function buildEntry(scored, record, meta) {
     quantity_g: scored.quantity_g,
     density_used: scored.density,
     density_provenance: scored.densityProvenance,
-    density_class: scored.densityProvenance === 'DMAP-1' ? (record.density_class ?? null) : null,
+    // §3.3a: the class that selected the density, for DMAP-1 and for BDMAP-1's
+    // step 2b alike — a spooned quantity must be distinguishable from a weighed
+    // one in any audit, and the class is how.
+    density_class: scored.densityProvenance === 'DMAP-1' ? (record.density_class ?? null)
+      : scored.densityProvenance === 'BDMAP-1' ? (scored.bulkClass ?? null)
+        : null,
     reported: { ...record.reported },
     as_consumed,
     macros,
@@ -73,6 +78,10 @@ export function buildEntry(scored, record, meta) {
     classification_set,
     contributions,
     incomplete: { isIncomplete: scored.isIncomplete, fields: [...scored.incomplete] },
+    // §8.5b: present ONLY on an entry written through a combo. Absent — not
+    // null — otherwise, because absence is what says "not logged through a
+    // combo" and a null would assert the field was considered and empty.
+    ...(meta.combo_id ? { combo_id: meta.combo_id, combo_name: meta.combo_name } : {}),
     schema_version: SCHEMA_VERSION,
   };
 }

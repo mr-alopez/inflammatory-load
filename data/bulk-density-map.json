@@ -1,0 +1,41 @@
+{
+  "version": "BDMAP-1",
+  "note": "§3.3a step 2b. Bulk densities for scoopable solids entered by volume. LESS PRECISE than liquid density: a tablespoon of oats varies with how it is packed, a tablespoon of water does not. Each value is derived from a published household-measure gram weight, divided by that measure in millilitres (1 cup = 236.5882365 ml, 1 tbsp = 14.78676478125 ml). The derivation is recorded per class so the number is auditable rather than asserted. Tags are OFF categories_tags fragments (§7.2a) — declared fields, never the product name (§8.3).",
+  "measures_ml": {
+    "cup": 236.5882365,
+    "tbsp": 14.78676478125
+  },
+  "densities": {
+    "brown_sugar": 0.93,
+    "granulated_sugar": 0.845,
+    "honey": 1.42,
+    "nut_butter": 1.082,
+    "cocoa_powder": 0.364,
+    "ground_coffee": 0.358,
+    "rolled_oats": 0.38,
+    "flour": 0.528,
+    "rice_dry": 0.782
+  },
+  "derivations": {
+    "brown_sugar": "USDA FDC household measure, brown sugar packed: 1 cup = 220 g. 220 / 236.5882365 = 0.9299.",
+    "granulated_sugar": "USDA FDC household measure, sugars granulated: 1 cup = 200 g. 200 / 236.5882365 = 0.8453.",
+    "honey": "USDA FDC household measure, honey: 1 tbsp = 21 g. 21 / 14.78676478125 = 1.4202.",
+    "nut_butter": "USDA FDC household measure, peanut butter smooth: 1 tbsp = 16 g. 16 / 14.78676478125 = 1.0821.",
+    "cocoa_powder": "USDA FDC household measure, cocoa dry powder unsweetened: 1 cup = 86 g. 86 / 236.5882365 = 0.3635.",
+    "ground_coffee": "USDA FDC household measure, coffee ground roasted: 1 tbsp = 5.3 g. 5.3 / 14.78676478125 = 0.3584.",
+    "rolled_oats": "USDA FDC household measure, oats rolled dry: 1 cup = 90 g. 90 / 236.5882365 = 0.3804.",
+    "flour": "USDA FDC household measure, wheat flour all-purpose: 1 cup = 125 g. 125 / 236.5882365 = 0.5283.",
+    "rice_dry": "USDA FDC household measure, rice white long-grain regular dry: 1 cup = 185 g. 185 / 236.5882365 = 0.7820."
+  },
+  "tags": [
+    { "class": "brown_sugar", "fragments": ["brown-sugars", "brown-sugar", "cassonade", "muscovado"] },
+    { "class": "granulated_sugar", "fragments": ["granulated-sugars", "caster-sugars", "white-sugars", "table-sugar", "sugars", "sugar"] },
+    { "class": "honey", "fragments": ["honeys", "honey"] },
+    { "class": "nut_butter", "fragments": ["peanut-butters", "almond-butters", "nut-butters", "peanut-butter"] },
+    { "class": "cocoa_powder", "fragments": ["cocoa-powders", "unsweetened-cocoa", "cocoa-powder"] },
+    { "class": "ground_coffee", "fragments": ["ground-coffees", "roasted-coffees", "coffee-beans", "ground-coffee"] },
+    { "class": "rolled_oats", "fragments": ["rolled-oats", "porridge-oats", "oat-flakes", "oatmeal"] },
+    { "class": "flour", "fragments": ["wheat-flours", "all-purpose-flours", "plain-flours", "flours"] },
+    { "class": "rice_dry", "fragments": ["white-rices", "basmati-rices", "long-grain-rices", "rices"] }
+  ]
+}

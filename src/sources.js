@@ -41,6 +41,37 @@ export function parseQuantity(text) {
   return { value: Number(m[1]), unit };
 }
 
+/**
+ * §3.3: a user-entered amount. Accepts a decimal, a vulgar fraction, or a mixed
+ * number — `0.5`, `1/3`, `1 1/2` — because that is how people say tablespoons.
+ *
+ * Returns null rather than a guess. A value that does not parse is refused by
+ * the form; it is never rounded to something nearby.
+ */
+export function parseAmount(text) {
+  if (typeof text === 'number') return Number.isFinite(text) && text > 0 ? text : null;
+  if (typeof text !== 'string') return null;
+  const t = text.trim();
+  if (t === '') return null;
+
+  const mixed = t.match(/^(\d+)\s+(\d+)\s*\/\s*(\d+)$/);
+  if (mixed) {
+    const [, whole, num, den] = mixed.map(Number);
+    return den > 0 ? whole + num / den : null;
+  }
+  const frac = t.match(/^(\d+)\s*\/\s*(\d+)$/);
+  if (frac) {
+    const [, num, den] = frac.map(Number);
+    return den > 0 && num > 0 ? num / den : null;
+  }
+  const dec = t.match(/^\d*\.?\d+$/);
+  if (dec) {
+    const v = Number(t);
+    return Number.isFinite(v) && v > 0 ? v : null;
+  }
+  return null;
+}
+
 /* ------------------------------------------------------------------ *
  * §3.1 — grain majority
  * ------------------------------------------------------------------ */
@@ -119,6 +150,9 @@ export function resolveFromOFF(raw) {
       quantity: packageQty,
     },
     density_class: densityClass,
+    // §3.3a step 2b: carried through from the shaper, which read the declared
+    // tags. Null is a valid outcome and means "not enterable by volume".
+    bulk_class: raw.bulk_class ?? null,
     labeled_serving: servingSize,
     grain_majority: grainMajority,
     classifications: juice.classifications,
@@ -218,6 +252,11 @@ export function resolveFromUSDA(raw) {
       product_id: `usda:${raw.fdcId}`,
       source: 'USDA',
       density_class: raw.density_class ?? null,
+      bulk_class: raw.bulk_class ?? null,
+      // §3.3a step 1, from USDA's declared foodPortions. This is the only route
+      // by which a USDA product is enterable by volume: USDA carries no
+      // categories_tags, so steps 2 and 2b cannot key on it.
+      ...(raw.derived_density ? { derived_density: raw.derived_density } : {}),
       // §7.2a / §8.2: USDA food category names, where a key is configured.
       occasion_category: categoryFromUSDA(raw.foodCategory),
       category_map_version: CATMAP_VERSION,
@@ -236,4 +275,51 @@ export function resolveFromUSDA(raw) {
       },
     },
   };
+}
+
+/* ------------------------------------------------------------------ *
+ * §8.1 — search result order and labelling
+ * ------------------------------------------------------------------ */
+
+/**
+ * §8.1: USDA Foundation Foods and SR Legacy are listed BEFORE Open Food Facts.
+ * Within each group the source's own order is kept.
+ *
+ * The order is fixed, not inferred from the query. For "coffee" the right
+ * answer is almost always a generic whole food, and a rule that reordered on
+ * what the query looked like would be a guess about what the user meant — the
+ * same class of thing §8.3 keeps out of the scoring path.
+ */
+export function orderSearchResults({ usda = [], off = [] } = {}) {
+  return [
+    ...usda.map((raw) => ({ raw, source: 'USDA' })),
+    ...off.map((raw) => ({ raw, source: 'OFF' })),
+  ];
+}
+
+/**
+ * §8.1: every result shows its source, its brand where one exists, and its
+ * energy per 100 g or 100 ml — enough to tell a plain brewed coffee from a
+ * flavoured bottled drink at a glance.
+ *
+ * Returns [name, detail]. `detail` is never empty: the source is always known,
+ * so a result can never render as a bare name with nothing to choose on, which
+ * is the state §8.1 exists to end.
+ */
+export function searchResultLabel({ raw, source }) {
+  if (source === 'USDA') {
+    const name = raw.description || '(no name)';
+    const kcal = raw.nutrients?.energy_kcal;
+    const parts = [`USDA ${raw.dataType}`];
+    if (Number.isFinite(kcal)) parts.push(`${Math.round(kcal)} kcal/100 g`);
+    return [name, parts.join(' · ')];
+  }
+  const name = raw.product_name || '(no name)';
+  const kcal = raw.nutriments?.energy_kcal;
+  const parts = ['Open Food Facts'];
+  if (raw.brands) parts.push(String(raw.brands).split(',')[0].trim());
+  if (Number.isFinite(kcal)) {
+    parts.push(`${Math.round(kcal)} kcal/100 ${raw.nutrition_data_per === '100ml' ? 'ml' : 'g'}`);
+  }
+  return [name, parts.join(' · ')];
 }

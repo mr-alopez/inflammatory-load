@@ -19,15 +19,27 @@
  * notification or badge reporting a load, and the way to guarantee that is to
  * register no such handler at all.
  */
-const CACHE_VERSION = 'v5';
+const CACHE_VERSION = 'v6';
 const CACHE = `inflammatory-load-shell-${CACHE_VERSION}`;
 
+/**
+ * Every module and data file the shell imports.
+ *
+ * This list was incomplete: density-map.js, category-map.js, swap.js,
+ * disclosures.js and all three JSON data files were reachable only through the
+ * fetch handler, so a FIRST visit made offline would have failed on them. The
+ * handler caches them after one online load, which is why it never showed.
+ * BDMAP-1 is added here rather than repeating that.
+ */
 const SHELL = [
   './', './index.html', './manifest.webmanifest', './icon.svg', './icon-192.png', './icon-512.png',
   './src/coefficients.js', './src/schema.js', './src/scoring.js', './src/store.js',
   './src/macros.js', './src/display.js', './src/select.js', './src/sources.js',
-  './src/manual.js', './src/entry.js', './src/client.js',
+  './src/manual.js', './src/entry.js', './src/client.js', './src/swap.js',
+  './src/disclosures.js', './src/density-map.js', './src/category-map.js',
+  './src/bulk-density-map.js',
   './src/backends/indexeddb.js', './src/backends/memory.js',
+  './data/density-map.json', './data/category-map.json', './data/bulk-density-map.json',
 ];
 
 self.addEventListener('install', (e) => {

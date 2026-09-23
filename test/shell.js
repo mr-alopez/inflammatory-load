@@ -543,6 +543,65 @@ check('§9.1: the page carries every required section',
     'm-scaling', 'm-juice', 'm-comp', 'm-macro', 'm-trend']
     .every((id) => html.includes(`id="${id}"`)));
 
+/* ---------- v1.8: §8.5b combos, §3.3a form constraint, §8.1 ordering ---------- */
+
+/**
+ * §8.5b: a combo writes ordinary entries. The shell must not build a composite
+ * one — a single entry whose values are the sum of its parts — which is the
+ * defect AV-26 exists to catch, here as a structural prohibition on the surface
+ * where it would be written.
+ */
+// Y4: tokens, not substrings — `sum` is inside `summary`.
+const sumsComponents = (src) => /reduce\(|\bsum\b|\+=/.test(src);
+
+const comboBlock = (code.html.match(/function comboScoreAndBuild[\s\S]*?\n}/) ?? [''])[0];
+check('[script: index.html comboScoreAndBuild] §8.5b: the combo builder builds one entry per component',
+  comboBlock.length > 200 && /buildEntry\(/.test(comboBlock) && !sumsComponents(comboBlock),
+  `${comboBlock.length} chars`);
+discriminates('§8.5b composite-entry prohibition', sumsComponents, {
+  rejects: ['const total = components.reduce((a, c) => a + c.score, 0);',
+    'let sum = 0; for (const c of cs) sum += c.score;'],
+  accepts: ['return buildEntry(scored, component.record, meta);',
+    'const scored = scoreEntry(component.record, component.quantity);'],
+});
+
+// §8.5b: the component's ORIGINAL source is kept. Nothing is restamped SAVED.
+check("[script: index.html] §8.5b: no combo path restamps a component's source",
+  !/combo[\s\S]{0,200}source:\s*['"]SAVED['"]/.test(code.html));
+
+// §8.5b: logging is atomic, and the shell routes through the store's logCombo
+// rather than looping putEntry itself — a loop here would write partially.
+check('[script: index.html] §8.5b: the shell logs a combo through logCombo, not a putEntry loop',
+  /await logCombo\(/.test(code.html)
+  && !/for\s*\([^)]*of\s+combo\.components[^)]*\)\s*\{[\s\S]{0,200}putEntry/.test(code.html));
+
+/**
+ * §3.3a step 2b: the form must ask the SAME question the conversion does. A
+ * separate rule in the UI is how a unit gets offered that then refuses.
+ */
+check('[script: index.html syncVolumeUnits] §3.3a: the form constraint calls resolveVolumeDensity',
+  /function syncVolumeUnits[\s\S]{0,400}resolveVolumeDensity\(/.test(code.html));
+const guessesDensity = (src) => /density\s*[=:]\s*1(\.0+)?\b/.test(src);
+check('[script: index.html] §3.3a: the shell never hardcodes a density to keep a unit available',
+  !guessesDensity(code.html));
+
+discriminates('§3.3a density-guess prohibition', guessesDensity, {
+  rejects: ['const density = 1.0;', 'return { density: 1 };', 'let density = 1.00;'],
+  accepts: ['const d = resolveVolumeDensity(record);', 'if (density === null) return;',
+    'density_used: scored.density'],
+});
+
+// §3.3: the amount field accepts fractions, so it must parse them, not Number().
+check('[script: index.html] §3.3: the quantity field parses fractions via parseAmount',
+  /function currentQuantity[\s\S]{0,300}parseAmount\(/.test(code.html)
+  && !/function currentQuantity[\s\S]{0,300}Number\(\$\('quantity-value'\)/.test(code.html));
+
+// §8.1: ordering and labelling are decided in sources.js, not in the DOM loop.
+check('[script: index.html] §8.1: search rendering uses orderSearchResults and searchResultLabel',
+  /orderSearchResults\(/.test(code.html) && /searchResultLabel\(/.test(code.html));
+check('[markup: index.html] §8.1: the search screen says a scan is more reliable',
+  /search-scan-hint/.test(html) && /scanning the barcode/.test(htmlText));
+
 /* ---------- run ---------- */
 
 console.log('\nSHELL — §13.3 structural constraints');

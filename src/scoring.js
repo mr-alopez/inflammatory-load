@@ -22,6 +22,7 @@ import {
   VOLUME_UNITS,
   COEFF_VERSION,
 } from './coefficients.js';
+import { classifyBulk, bulkDensity, BDMAP_VERSION } from './bulk-density-map.js';
 
 /** Non-creation reasons. An entry is refused, never scored around (§2.3). */
 export const REJECT = {
@@ -36,15 +37,37 @@ const rejected = (reason, detail) => ({ created: false, reason, detail });
 
 const isVolumeUnit = (u) => VOLUME_UNITS.includes(u);
 
+/**
+ * §3.3 volume units — the exact US customary definitions.
+ *
+ * REPORTED: §3.3's table rounds these to 29.5735 / 236.588 / 14.7868. The
+ * rounded values are used nowhere, because one constant per unit is the point:
+ * §3.3a already used the exact fluid ounce for source-declared serving sizes,
+ * and a second, rounded fluid ounce for user-entered quantities would make the
+ * same 12 fl oz convert to two different masses depending on which path reached
+ * it. The rounded table is also not self-consistent — 2 × 14.7868 is 29.5736,
+ * not its own 29.5735 — so it cannot be adopted wholesale anyway. Every §10
+ * figure is unaffected at the precision the vectors state.
+ */
+const FL_OZ_ML = 29.5735295625;
+export const ENTRY_VOLUME_UNITS = {
+  ml: 1,
+  cl: 10,
+  l: 1000,
+  'fl oz': FL_OZ_ML,
+  cup: FL_OZ_ML * 8,            // 236.5882365
+  tbsp: FL_OZ_ML / 2,           // 14.78676478125
+};
+
+/** Units a user may enter a quantity in (§3.3). Mass first, then volume. */
+export const QUANTITY_UNITS = ['g', 'ml', 'fl oz', 'cup', 'tbsp'];
+
+export const isEntryVolumeUnit = (u) => u !== 'g' && ENTRY_VOLUME_UNITS[u] !== undefined;
+
 /** Normalize a declared volume to millilitres. Declared units only — no guessing. */
 function toMl(value, unit) {
-  switch (unit) {
-    case 'ml': return value;
-    case 'cl': return value * 10;
-    case 'l': return value * 1000;
-    case 'fl oz': return value * 29.5735295625;
-    default: return null;
-  }
+  const factor = ENTRY_VOLUME_UNITS[unit];
+  return factor === undefined ? null : value * factor;
 }
 
 /* ------------------------------------------------------------------ *
@@ -118,6 +141,34 @@ export function resolveDensity(record) {
   return { density: null, provenance: null };
 }
 
+/**
+ * §3.3a step 2b — a scoopable solid entered by volume.
+ *
+ * Consulted only when steps 1 and 2 found nothing, per §3.3a's stated order: a
+ * product with a liquid class converts at its liquid density. A product
+ * resolving under neither is not enterable by volume at all — the form drops
+ * the volume units rather than the app guessing a density to keep them.
+ */
+export function resolveBulkDensity(record) {
+  const cls = record.bulk_class ?? classifyBulk(record.categories_tags ?? []);
+  const density = bulkDensity(cls);
+  return density === null
+    ? { density: null, provenance: null, bulkClass: null }
+    : { density, provenance: BDMAP_VERSION, bulkClass: cls };
+}
+
+/**
+ * The density that will convert a volume for this record, with its provenance,
+ * in §3.3a's order. Used by the form to decide whether volume units may be
+ * offered at all (§3.3a step 2b), so the same rule governs the control and the
+ * conversion — a unit the form offers always converts.
+ */
+export function resolveVolumeDensity(record) {
+  const liquid = resolveDensity(record);
+  if (liquid.density !== null) return { ...liquid, bulkClass: null };
+  return resolveBulkDensity(record);
+}
+
 /* ------------------------------------------------------------------ *
  * §3.3b — Nutrient scaling
  * ------------------------------------------------------------------ */
@@ -160,8 +211,35 @@ export function alcoholUnits({ volume_ml, abv_percent }) {
  * @param {{value:number, unit:'g'|'ml'}} quantity  as entered
  * @returns {object} either {created:false, reason} or the full scored result
  */
-export function scoreEntry(record, quantity) {
+export function scoreEntry(record, enteredQuantity) {
   const cls = record.classifications || {};
+
+  /* --- §3.3 volume units: converted to ml BEFORE §3.3a runs --- *
+   *
+   * Everything downstream sees `quantity` in g or ml, exactly as it did before
+   * volume units existed. The entry stores the quantity AS ENTERED (§3.3) —
+   * that is meta.quantity in buildEntry, not this — so `12 fl oz` renders as
+   * `12 fl oz` while `quantity_g` stays the single canonical quantity (§3.3a).
+   */
+  let quantity = enteredQuantity;
+  let bulkUsed = null;
+  if (isEntryVolumeUnit(quantity.unit) && quantity.unit !== 'ml') {
+    const ml = toMl(quantity.value, quantity.unit);
+    if (ml === null || !Number.isFinite(ml)) {
+      return rejected(REJECT.DENSITY_UNRESOLVED, `unknown volume unit ${quantity.unit} (§3.3)`);
+    }
+    quantity = { value: ml, unit: 'ml' };
+  }
+
+  /* --- §3.3a step 2b: a scoopable solid entered by volume converts to mass
+   * through BDMAP-1, but only once steps 1 and 2 have found nothing. --- */
+  if (quantity.unit === 'ml' && resolveDensity(record).density === null) {
+    const bulk = resolveBulkDensity(record);
+    if (bulk.density !== null) {
+      bulkUsed = bulk;
+      quantity = { value: quantity.value * bulk.density, unit: 'g' };
+    }
+  }
 
   /* --- §3.1 mutual exclusion and non-resolving classification, checked first --- */
   if (cls.P4 && cls.A7) {
@@ -218,8 +296,8 @@ export function scoreEntry(record, quantity) {
     (basis === 'per_serving' && servingStatedInVolume) ||
     (cls.P5 && !record.labeled_serving && quantity.unit === 'ml');
 
-  let density = null;
-  let densityProvenance = null;
+  let density = bulkUsed?.density ?? null;
+  let densityProvenance = bulkUsed?.provenance ?? null;
   if (needsDensity) {
     ({ density, provenance: densityProvenance } = resolveDensity(record));
     if (density === null) {
@@ -339,6 +417,9 @@ export function scoreEntry(record, quantity) {
     basisProvenance,
     density,
     densityProvenance,
+    // §3.3a step 2b: the class that selected a bulk density, stored so a
+    // spooned quantity is distinguishable from a weighed one in any audit.
+    bulkClass: bulkUsed?.bulkClass ?? null,
     quantity_g,
     asConsumed,
     servings,

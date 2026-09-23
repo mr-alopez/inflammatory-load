@@ -24,6 +24,7 @@ export const STORE_ERROR = {
   UNKNOWN_FIELD: 'UNKNOWN_FIELD',
   TREND_EPOCH_IMMUTABLE: 'TREND_EPOCH_IMMUTABLE',
   NO_SUCH_ENTRY: 'NO_SUCH_ENTRY',
+  COMBO_COMPONENT_FAILED: 'COMBO_COMPONENT_FAILED',   // §8.5b
 };
 
 export class StoreRejection extends Error {
@@ -182,6 +183,120 @@ export class EntryStore {
 }
 
 /* ------------------------------------------------------------------ *
+ * §8.5b combos
+ * ------------------------------------------------------------------ */
+
+/**
+ * A combo is a named list of components. It is NOT a source and NOT a composite
+ * record: logging one writes an ordinary entry per component (§3.7 holds).
+ *
+ * Each component carries the resolved record it was built from, snapshotted at
+ * creation as a saved product is (§8.5a), so logging needs no network and
+ * produces the same entries every time. Snapshots are deep (§8.4).
+ */
+export function buildCombo({ combo_id, name, components }) {
+  if (!name) throw new StoreRejection(STORE_ERROR.MISSING_REQUIRED_FIELD, 'combo name');
+  if (!Array.isArray(components) || components.length === 0) {
+    throw new StoreRejection(STORE_ERROR.MISSING_REQUIRED_FIELD, 'combo components');
+  }
+  for (const c of components) {
+    if (!c.record || !c.quantity || !c.food_name) {
+      throw new StoreRejection(STORE_ERROR.MISSING_REQUIRED_FIELD,
+        'each component needs a record, a quantity and a food_name');
+    }
+  }
+  return deepFreeze(deepClone({
+    combo_id: combo_id ?? `combo:${name}`,
+    name,
+    // §8.5b: the component's ORIGINAL source and product_id are kept. A combo
+    // is not a source, so nothing here is restamped SAVED.
+    components: components.map((c) => ({
+      food_name: c.food_name,
+      product_id: c.product_id ?? c.record.product_id ?? `local:${c.food_name}`,
+      quantity: { value: c.quantity.value, unit: c.quantity.unit },
+      occasion_category: c.occasion_category ?? c.record.occasion_category ?? 'UNCATEGORIZED',
+      category_map_version: c.category_map_version ?? c.record.category_map_version ?? 'CATMAP-1',
+      record: c.record,
+    })),
+  }));
+}
+
+export class ComboStore {
+  constructor(backend) { this.backend = backend; }
+
+  async put(combo) {
+    await this.backend.put(STORES.COMBOS, combo.combo_id, combo);
+    return combo;
+  }
+
+  async get(comboId) {
+    const c = await this.backend.get(STORES.COMBOS, comboId);
+    return c ? deepFreeze(c) : undefined;
+  }
+
+  async all() {
+    return (await this.backend.getAll(STORES.COMBOS)).map(deepFreeze);
+  }
+
+  async remove(comboId) {
+    await this.backend.delete(STORES.COMBOS, comboId);
+  }
+}
+
+/**
+ * §8.5b: logging a combo is ATOMIC — if any component fails to write, none are.
+ *
+ * The backend has no multi-store transaction across an await boundary we can
+ * rely on, so atomicity is achieved by building and validating every entry
+ * first, then writing. A partially written combo is a silently wrong day total
+ * that §8.4 cannot correct afterwards: entries are immutable, and only today's
+ * may be removed. That is why this refuses rather than writes what it can.
+ *
+ * @param scoreAndBuild (component, meta) => entry — injected so the store stays
+ *        free of the scoring core, which it has never imported.
+ */
+export async function logCombo(store, combo, { local_date, entryId, scoreAndBuild }) {
+  const built = [];
+  for (const [i, component] of combo.components.entries()) {
+    const entry = scoreAndBuild(component, {
+      entry_id: entryId(component, i),
+      local_date,
+      combo_id: combo.combo_id,
+      combo_name: combo.name,
+    });
+    // A component that will not score refuses the whole combo (§8.5b).
+    if (!entry) {
+      throw new StoreRejection(STORE_ERROR.COMBO_COMPONENT_FAILED,
+        `component ${i + 1} (${component.food_name}) did not resolve; no entries written`);
+    }
+    built.push(entry);
+  }
+
+  // Pre-flight every write against the rules that can refuse one, so a refusal
+  // lands before anything is stored rather than halfway through.
+  const seen = new Set();
+  for (const e of built) {
+    if (seen.has(e.entry_id) || (await store.getEntry(e.entry_id))) {
+      throw new StoreRejection(STORE_ERROR.ENTRY_EXISTS,
+        `${e.entry_id} already exists; no entries written (§8.5b)`);
+    }
+    seen.add(e.entry_id);
+  }
+
+  const written = [];
+  try {
+    for (const e of built) written.push(await store.putEntry(e));
+  } catch (err) {
+    // Belt and braces: if a write still fails, undo the ones that landed. The
+    // pre-flight above should make this unreachable, and it is tested anyway —
+    // "should be unreachable" is not a guarantee (§2.5).
+    for (const e of written) await store.backend.delete(STORES.ENTRIES, e.entry_id);
+    throw err;
+  }
+  return written;
+}
+
+/* ------------------------------------------------------------------ *
  * §8.6 migration
  * ------------------------------------------------------------------ */
 
@@ -225,7 +340,26 @@ export function migrateEntryV2toV3(v2Entry) {
   const migrated = deepClone(v2Entry);
   // No classification_set, contributions or incomplete key is added. Absence is
   // the signal; see displayable() in src/display.js.
-  migrated.schema_version = SCHEMA_VERSION;
+  //
+  // Stamps 3, NOT SCHEMA_VERSION. A hop that stamps the current version claims a
+  // shape it knows nothing about and causes every later hop to be skipped — the
+  // same defect the V1→V2 hop carried. Latent while SCHEMA_VERSION was 3; live
+  // the moment SCHEMA-4 landed.
+  migrated.schema_version = 3;
+  return deepFreeze(migrated);
+}
+
+/**
+ * SCHEMA-3 → SCHEMA-4 (§8.5b). Adds no key.
+ *
+ * `combo_id` and `combo_name` are present only on an entry written through a
+ * combo. Their ABSENCE is the signal that an entry was not, so a migration that
+ * added them as null would assert something about entries logged before combos
+ * existed. §8.6: a migration may add a field, but it may not invent a value.
+ */
+export function migrateEntryV3toV4(v3Entry) {
+  const migrated = deepClone(v3Entry);
+  migrated.schema_version = 4;
   return deepFreeze(migrated);
 }
 
@@ -238,6 +372,7 @@ export async function migrateStore(backend) {
     let m = e;
     if ((m.schema_version ?? 1) < 2) m = migrateEntryV1toV2(m);
     if ((m.schema_version ?? 2) < 3) m = migrateEntryV2toV3(m);
+    if ((m.schema_version ?? 3) < 4) m = migrateEntryV3toV4(m);
     await backend.put(STORES.ENTRIES, e.entry_id, m);
   }
   await backend.put(STORES.META, META_KEYS.SCHEMA_VERSION, SCHEMA_VERSION);

@@ -39,6 +39,12 @@ export function openDatabase(indexedDB = globalThis.indexedDB) {
           };
         }
       }
+      // SCHEMA-4 (§8.5b). Adds a store; adds no field to any existing entry,
+      // because the absence of combo_id is what says an entry was not logged
+      // through a combo (§8.6).
+      if (from < 4 && !db.objectStoreNames.contains(STORES.COMBOS)) {
+        db.createObjectStore(STORES.COMBOS, { keyPath: 'combo_id' });
+      }
     };
 
     req.onsuccess = () => resolve(new IndexedDbBackend(req.result));

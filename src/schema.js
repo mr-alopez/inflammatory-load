@@ -4,12 +4,13 @@
  * Field definitions and immutability classes. Data only, no logic.
  */
 
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 export const STORES = {
   ENTRIES: 'entries',
   SAVED_PRODUCTS: 'saved_products',
   PRODUCT_CACHE: 'product_cache',   // resolved OFF/USDA records only — never MANUAL/SAVED (§8.5)
+  COMBOS: 'combos',      // §8.5b — named component lists; not a source, not a composite record
   META: 'meta',          // TREND_EPOCH lives here — stored once, outside any entry
 };
 
@@ -41,11 +42,12 @@ export const ENTRY_FIELDS = {
   source_basis_provenance:  { immutable: true, nullable: true, enum: ['DECLARED', 'DERIVED_RULE_2', null] },
 
   quantity_value:           { immutable: true, required: true },
-  quantity_unit:            { immutable: true, required: true, enum: ['g', 'ml'] },
+  // §3.3: the unit AS ENTERED. quantity_g remains the single canonical quantity.
+  quantity_unit:            { immutable: true, required: true, enum: ['g', 'ml', 'fl oz', 'cup', 'tbsp'] },
   quantity_g:               { immutable: true, nullable: true },
 
   density_used:             { immutable: true, nullable: true },
-  density_provenance:       { immutable: true, nullable: true, enum: ['DERIVED', 'DMAP-1', 'MANUAL', null] },
+  density_provenance:       { immutable: true, nullable: true, enum: ['DERIVED', 'DMAP-1', 'BDMAP-1', 'MANUAL', null] },
   density_class:            { immutable: true, nullable: true },
 
   // The attribute set as retrieved AND as consumed, with explicit nulls (§8.4).
@@ -71,8 +73,18 @@ export const ENTRY_FIELDS = {
   classification_set:       { immutable: true, required: true },   // {P5:{servings:1}, P3:{units:1.0003}}
   contributions:            { immutable: true, required: true },   // every contributing attribute
   incomplete:               { immutable: true, required: true },   // {isIncomplete, fields[]}
+
+  // SCHEMA-4 (§8.5b). Present only on an entry written through a combo. Absent
+  // — not null — on every other entry, which reads as "not logged through a
+  // combo" and needs no backfill (§8.6).
+  combo_id:                 { immutable: true, nullable: true },
+  combo_name:               { immutable: true, nullable: true },
+
   schema_version:           { immutable: true, required: true },
 };
+
+/** §8.5b. A combo adds these; an entry logged any other way carries neither. */
+export const SCHEMA_4_ADDED_FIELDS = ['combo_id', 'combo_name'];
 
 /**
  * Fields a SCHEMA-1 → SCHEMA-2 migration adds (§8.6). Existing entries take

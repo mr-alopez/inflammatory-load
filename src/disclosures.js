@@ -103,3 +103,16 @@ export const REFUSAL_COPY = {
     'Alcohol is worked out from volume and strength, so a volume is needed before it '
     + 'can be selected.',
 };
+
+/**
+ * §3.3a step 2b. The spec requires the method page to say this, and says why:
+ * a spooned quantity must be distinguishable from a weighed one, both in the
+ * stored entry and to the person reading the number.
+ */
+export const BULK_DENSITY_RULE = `Spoons and cups of a solid — sugar, oats, peanut butter —
+are converted to grams through a table of bulk densities for the food type. This is less
+precise than weighing, and less precise than the same conversion for a liquid: a tablespoon
+of oats varies with how it is packed, a tablespoon of water does not. The entry records that
+the quantity came from this table, so a spooned amount is always distinguishable from a
+weighed one. A solid with no entry in the table cannot be entered by spoon or cup at all —
+it asks for grams instead of guessing.`;

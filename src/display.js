@@ -290,3 +290,47 @@ export function dayMacroLine(totals, { partial = false, omit = false } = {}) {
   if (body === null) return null;
   return partial ? `${body}${SEP}partial` : body;
 }
+
+/* ------------------------------------------------------------------ *
+ * §3.3 — quantity as entered
+ * ------------------------------------------------------------------ */
+
+/**
+ * REPORTED — §3.3 (v1.8) says the entry "displays them that way (`12 fl oz`,
+ * `1/3 tbsp`)", but §6 defines no string that renders a quantity. §6.1 is
+ * `{food_name} — {score}`; §6.1a is macros; §6.4 is the incomplete marker;
+ * §6.5's mass belongs to a swap candidate. There is no §6 slot to put this in.
+ *
+ * So this is built, tested and NOT wired into any §6 string. Wiring it into
+ * §6.1 would change every entry line and falsify §6.1's stated format and the
+ * display vectors that assert it, which §11's "claims about vectors bind those
+ * vectors" forbids doing quietly. §6 needs to say where a quantity renders.
+ *
+ * Fractions are reconstructed rather than stored. §3.3 asks for `1/3 tbsp`, but
+ * `quantity_value` holds 0.333…, so rendering "as entered" means recovering the
+ * fraction. Only culinary denominators are tried (2, 3, 4, 8) and only on an
+ * exact-to-tolerance match; anything else renders as a trimmed decimal. This
+ * reconstructs what was entered without storing a second representation of it.
+ */
+const FRACTION_DENOMINATORS = [2, 3, 4, 8];
+
+export function formatAmount(value) {
+  if (!Number.isFinite(value)) return null;
+  const whole = Math.floor(value);
+  const rest = value - whole;
+  if (rest > 1e-9) {
+    for (const den of FRACTION_DENOMINATORS) {
+      const num = Math.round(rest * den);
+      if (num > 0 && num < den && Math.abs(rest - num / den) < 1e-9) {
+        return whole > 0 ? `${whole} ${num}/${den}` : `${num}/${den}`;
+      }
+    }
+  }
+  return String(Number(value.toFixed(2)));
+}
+
+/** `12 fl oz`, `1/3 tbsp`, `100 g` — the quantity as the user entered it (§3.3). */
+export function quantityAsEntered(entry) {
+  const amount = formatAmount(entry.quantity_value);
+  return amount === null ? null : `${amount} ${entry.quantity_unit}`;
+}

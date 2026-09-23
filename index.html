@@ -69,6 +69,23 @@
   .result { display: block; width: 100%; text-align: left; background: var(--card);
             border: 1px solid var(--rule); border-radius: 10px; padding: 11px 13px;
             margin: 8px 0; font: inherit; color: var(--fg); cursor: pointer; }
+  .result-detail { color: var(--dim); font-size: 13px; margin-top: 2px; }
+  /* §8.5b: grouping is presentational only — it reads combo_id off ordinary entries. */
+  .combo-group { border: 1px solid var(--rule); border-radius: 10px; padding: 4px 10px 10px;
+    margin: 10px 0; background: var(--card); }
+  .combo-group > h3 { font-size: 13px; font-weight: 600; color: var(--dim);
+    margin: 10px 4px 0; text-transform: none; letter-spacing: 0; }
+  .combo-group .entry { background: none; border: 0; border-top: 1px solid var(--rule);
+    border-radius: 0; margin: 0; padding: 10px 4px; }
+  .combo-remove-group { display: block; width: 100%; margin-top: 8px; padding: 8px;
+    font: inherit; font-size: 13.5px; color: var(--dim); background: none;
+    border: 1px dashed var(--rule); border-radius: 8px; cursor: pointer; }
+  .combo-draft-row { display: flex; justify-content: space-between; gap: 8px;
+    align-items: center; font-size: 13.5px; padding: 8px 0;
+    border-bottom: 1px solid var(--rule); }
+  .combo-draft-row button { font: inherit; font-size: 13px; color: var(--dim);
+    background: none; border: 1px solid var(--rule); border-radius: 8px;
+    padding: 4px 10px; cursor: pointer; }
   .swap-ask { display: block; width: 100%; margin-top: 10px; padding: 8px; font: inherit;
     font-size: 13.5px; color: var(--dim); background: none; border: 1px dashed var(--rule);
     border-radius: 8px; cursor: pointer; }
@@ -106,6 +123,7 @@
   <section id="today">
     <div class="load" id="today-load">Today so far: +0.0</div>
     <div class="macros" id="today-macros"></div>
+    <div id="today-combos"></div>
     <button class="add" id="go-add">Add an entry</button>
     <button class="add secondary method-link" data-screen="method">How these numbers are made</button>
     <h2>Entries</h2>
@@ -131,7 +149,25 @@
       <button class="add" data-path="scan">Scan a barcode</button>
       <button class="add" data-path="search">Search by name</button>
       <button class="add" data-path="saved">From saved products</button>
+      <button class="add" data-path="combo">Build a combo</button>
       <button class="add" data-path="manual">Enter it manually</button>
+    </div>
+
+    <!-- step: combos (§8.5b) -->
+    <div id="add-combo" hidden>
+      <h2>Combos</h2>
+      <p class="muted">A combo logs each component as its own entry. It is a shortcut,
+        not a recipe — nothing is combined.</p>
+      <div id="combo-list"></div>
+      <h2>Build a new one</h2>
+      <label class="field">Name
+        <input id="combo-name" autocomplete="off" placeholder="Morning coffee">
+      </label>
+      <div id="combo-draft"></div>
+      <button class="add" id="combo-add-component">Add a component</button>
+      <button class="add" id="combo-save">Save combo</button>
+      <p class="muted" id="combo-error"></p>
+      <button class="add secondary" data-back>Back</button>
     </div>
 
     <!-- step: camera -->
@@ -151,6 +187,8 @@
         <input id="search-q" autocomplete="off">
       </label>
       <button class="add" id="search-go">Search</button>
+      <p class="muted" id="search-scan-hint">For a packaged product, scanning the barcode is
+        more reliable than searching for it.</p>
       <div id="search-results"></div>
       <button class="add secondary" data-back>Back</button>
     </div>
@@ -167,13 +205,18 @@
       <p id="quantity-product"></p>
       <label class="field">Amount
         <span class="row">
-          <input id="quantity-value" inputmode="decimal" autocomplete="off">
+          <input id="quantity-value" inputmode="text" autocomplete="off"
+                 placeholder="12, 0.5, 1/3, 1 1/2">
           <select id="quantity-unit">
             <option value="g">grams</option>
             <option value="ml">millilitres</option>
+            <option value="fl oz">fl oz</option>
+            <option value="cup">cups</option>
+            <option value="tbsp">tbsp</option>
           </select>
         </span>
       </label>
+      <p class="muted" id="quantity-units-note" hidden></p>
       <button class="add" id="quantity-package" hidden></button>
       <p class="muted" id="quantity-preview"></p>
       <button class="add" id="quantity-confirm">Confirm and log</button>
@@ -253,6 +296,8 @@
     <h2>Millilitres to grams</h2>
     <p class="muted" id="m-density-rule"></p>
     <div id="m-densities"></div>
+    <p class="muted" id="m-bulk-density-rule"></p>
+    <div id="m-bulk-densities"></div>
 
     <h2>Scaling to what you ate</h2>
     <p class="muted" id="m-scaling"></p>
@@ -281,24 +326,27 @@
 </nav>
 
 <script type="module">
-import { EntryStore } from './src/store.js';
+import { EntryStore, ComboStore, buildCombo, logCombo } from './src/store.js';
 import { openDatabase } from './src/backends/indexeddb.js';
 import { MemoryBackend } from './src/backends/memory.js';
 import {
   todayLine, entryLine, entryMacroLine, incompleteMarker,
   completedDaySummary, windowSummary, normalizedLine, dayMacroLine,
   driverState, DRIVER_STATE, swapLine,
+  formatAmount, quantityAsEntered,
 } from './src/display.js';
 import { requestSwap } from './src/swap.js';
 import { macroTotals, normalizeWindow } from './src/macros.js';
 import { dayMacroLinePolicy } from './src/store.js';
-import { scoreEntry } from './src/scoring.js';
-import { resolveFromOFF, resolveFromUSDA } from './src/sources.js';
+import { scoreEntry, resolveVolumeDensity } from './src/scoring.js';
+import { resolveFromOFF, resolveFromUSDA, parseAmount,
+  orderSearchResults, searchResultLabel } from './src/sources.js';
 import { createManualRecord, saveProduct, recordFromSaved, ABSENT } from './src/manual.js';
 import { buildEntry } from './src/entry.js';
 import { lookupBarcode, searchOFF, searchUSDA, LOOKUP } from './src/client.js';
 import * as DISC from './src/disclosures.js';
 import { ATTRIBUTES, ATTRIBUTE_ORDER, DENSITY_MAP, DMAP_VERSION } from './src/coefficients.js';
+import { BULK_DENSITY_MAP, BDMAP_VERSION } from './src/bulk-density-map.js';
 import {
   localDate, entriesForDate, dailyLoad, todayLoad,
   completedDates, windowDates, windowEntries, hasMixedCoefficientVersions, trendBlocks,
@@ -496,7 +544,48 @@ function renderToday(entries) {
     host.append(p);
     return;
   }
-  for (const e of mine) host.append(renderEntry(e));
+  /**
+   * §8.5b: entries written by one combo are grouped. Grouping is PRESENTATIONAL
+   * ONLY — it reads `combo_id` off ordinary entries and changes nothing about
+   * them. Each grouped entry keeps its own driver line, its own macro line, its
+   * own §7.1 affordance and its own press-and-hold removal, because each is an
+   * ordinary entry and §3.7 still holds.
+   */
+  // Runs of consecutive entries sharing a combo_id are collected FIRST, so the
+  // group's own controls land after its last entry rather than after its first.
+  const runs = [];
+  for (const e of mine) {
+    const last = runs[runs.length - 1];
+    if (e.combo_id && last?.combo_id === e.combo_id) last.entries.push(e);
+    else runs.push({ combo_id: e.combo_id ?? null, combo_name: e.combo_name ?? null, entries: [e] });
+  }
+
+  for (const run of runs) {
+    if (!run.combo_id) {
+      for (const e of run.entries) host.append(renderEntry(e));
+      continue;
+    }
+    const group = document.createElement('div');
+    group.className = 'combo-group';
+    const h = document.createElement('h3');
+    text(h, run.combo_name ?? 'Combo');
+    group.append(h);
+    for (const e of run.entries) group.append(renderEntry(e));
+
+    // §8.5b: removing the whole group removes each of today's component entries
+    // individually — it is not a different operation, just fewer taps.
+    const rm = document.createElement('button');
+    rm.className = 'combo-remove-group';
+    text(rm, `Remove all ${run.entries.length}`);
+    rm.addEventListener('click', async () => {
+      for (const x of run.entries) {
+        try { await store.deleteEntry(x.entry_id); } catch { /* already gone */ }
+      }
+      await show('today');
+    });
+    group.append(rm);
+    host.append(group);
+  }
 
   // The gesture is otherwise undiscoverable. Factual, about the app, never
   // about the entries (§13.3).
@@ -690,6 +779,7 @@ function renderMethod() {
   text($('m-comp'), DISC.COMPARABILITY);
   text($('m-macro'), DISC.MACRO_STATEMENT);
   text($('m-density-rule'), DISC.DENSITY_RULE);
+  text($('m-bulk-density-rule'), DISC.BULK_DENSITY_RULE);   // §3.3a step 2b
   text($('m-scaling'), DISC.SCALING_RULE);
   text($('m-juice'), DISC.JUICE_RULE);
   text($('m-trend'), DISC.TREND_LAG);
@@ -737,6 +827,9 @@ function renderMethod() {
   // §3.3a DMAP table, from data/density-map.json itself.
   table($('m-densities'), [`Class (${DMAP_VERSION})`, 'g/ml'],
     Object.entries(DENSITY_MAP).map(([k, v]) => [k.replace(/_/g, ' '), v.toFixed(2)]));
+  // §9.1: built from the live data file, not typed out, so it cannot drift.
+  table($('m-bulk-densities'), [`Scoopable solid (${BDMAP_VERSION})`, 'g/ml'],
+    Object.entries(BULK_DENSITY_MAP).map(([k, v]) => [k.replace(/_/g, ' '), v.toFixed(3)]));
 }
 
 /* ── navigation ───────────────────────────────────────────────────── */
@@ -753,7 +846,7 @@ async function show(name) {
   text($('screen-title'), TITLES[name]);
 
   const entries = await store.allEntries();
-  if (name === 'today') renderToday(entries);
+  if (name === 'today') { renderToday(entries); await renderCombos(); }
   if (name === 'log') renderLog(entries);
   if (name === 'trend') await renderTrend(entries);
   if (name === 'method') renderMethod();
@@ -773,8 +866,9 @@ for (const b of document.querySelectorAll('.method-link')) {
 
 /* ── §13.2 logging flow ───────────────────────────────────────────── */
 
-const STEPS = ['add-choose', 'add-scan', 'add-search', 'add-saved', 'add-quantity', 'add-manual'];
-const flow = { record: null, raw: null, prefill: {}, stream: null, saved: null };
+const STEPS = ['add-choose', 'add-scan', 'add-search', 'add-saved', 'add-quantity',
+  'add-manual', 'add-combo'];
+const flow = { record: null, raw: null, prefill: {}, stream: null, saved: null, forCombo: false };
 
 function step(id, notice) {
   for (const s of STEPS) $(s).hidden = s !== id;
@@ -858,8 +952,10 @@ function useRaw(raw, source, prefill) {
   flow.raw = raw;
   text($('quantity-product'), res.record.name ?? prefill.name ?? '');
   $('quantity-value').value = '';
+  syncVolumeUnits(res.record);
   $('quantity-unit').value = res.record.off?.quantity
-    && ['ml', 'l', 'cl', 'fl oz'].includes(res.record.off.quantity.unit) ? 'ml' : 'g';
+    && ['ml', 'l', 'cl', 'fl oz'].includes(res.record.off.quantity.unit)
+    && resolveVolumeDensity(res.record).density !== null ? 'ml' : 'g';
 
   // §3.3 package shortcut, offered only where a net weight exists.
   const pkg = res.record.off?.quantity;
@@ -881,9 +977,30 @@ function useRaw(raw, source, prefill) {
 /* ---- quantity and write (§3.3, §8.4) ---- */
 
 function currentQuantity() {
-  const value = Number($('quantity-value').value);
-  return Number.isFinite(value) && value > 0
-    ? { value, unit: $('quantity-unit').value } : null;
+  // §3.3: "0.5", "1/3" and "1 1/2" are all valid. parseAmount returns null
+  // rather than a guess, and the form refuses rather than rounding.
+  const value = parseAmount($('quantity-value').value);
+  return value === null ? null : { value, unit: $('quantity-unit').value };
+}
+
+/**
+ * §3.3a step 2b: the volume units are offered only when a density resolves for
+ * this product. The form asks resolveVolumeDensity — the SAME function the
+ * conversion uses — so a unit the form offers always converts, and the app
+ * never guesses a density to keep a unit available (K2's rule, §8.5).
+ */
+function syncVolumeUnits(record) {
+  const sel = $('quantity-unit');
+  const resolves = !!record && resolveVolumeDensity(record).density !== null;
+  for (const opt of sel.options) {
+    if (opt.value === 'g') continue;
+    opt.disabled = !resolves;
+    opt.hidden = !resolves;
+  }
+  if (!resolves && sel.value !== 'g') sel.value = 'g';
+  const note = $('quantity-units-note');
+  text(note, resolves ? '' : 'Grams only — no density is known for this product.');
+  note.hidden = resolves;
 }
 
 function previewQuantity() {
@@ -1049,6 +1166,7 @@ $('add-choose').addEventListener('click', async (e) => {
   if (b.dataset.path === 'scan') { step('add-scan'); startCamera(); }
   if (b.dataset.path === 'search') { step('add-search'); }
   if (b.dataset.path === 'saved') { step('add-saved'); await renderSaved(); }
+  if (b.dataset.path === 'combo') { step('add-combo'); await renderComboBuilder(); }
   if (b.dataset.path === 'manual') { toManual('Enter the figures from the label.'); }
 });
 
@@ -1080,27 +1198,33 @@ $('search-go').addEventListener('click', async () => {
   // §8.2: USDA is optional. With no key it returns NO_API_KEY and is skipped;
   // OFF alone is the default and the app is fully functional that way.
   const usda = await searchUSDA(q, readKey());
-  if (usda.status === LOOKUP.OK) {
-    for (const raw of usda.results) {
-      const b = document.createElement('button');
-      b.className = 'result';
-      text(b, `${raw.description} — USDA ${raw.dataType}`);
-      b.addEventListener('click', () => useRaw(raw, 'USDA', { name: raw.description }));
-      host.append(b);
-    }
-  }
 
   if (r.status !== LOOKUP.OK && usda.status !== LOOKUP.OK) {
     toManual(REFUSAL_COPY[r.status] ?? REFUSAL_COPY.ERROR, { name: q });
     return;
   }
-  for (const raw of r.results) {
+
+  // §8.1: USDA first, then OFF, each in the source's own order. The ordering
+  // and the labels are decided in src/sources.js so both are testable without
+  // a DOM — this loop only renders what that returned.
+  const ordered = orderSearchResults({
+    usda: usda.status === LOOKUP.OK ? usda.results : [],
+    off: r.status === LOOKUP.OK ? r.results : [],
+  });
+  for (const item of ordered) {
+    const [name, detail] = searchResultLabel(item);
     const b = document.createElement('button');
     b.className = 'result';
-    text(b, raw.product_name || '(no name)');
-    b.addEventListener('click', () => useRaw(raw, 'OFF', { name: raw.product_name }));
+    const n = document.createElement('div');
+    text(n, name);
+    const d = document.createElement('div');
+    d.className = 'result-detail';
+    text(d, detail);
+    b.append(n, d);
+    b.addEventListener('click', () => useRaw(item.raw, item.source, { name }));
     host.append(b);
   }
+  return;
 });
 
 $('quantity-value').addEventListener('input', previewQuantity);
@@ -1108,9 +1232,24 @@ $('quantity-unit').addEventListener('change', previewQuantity);
 
 $('quantity-confirm').addEventListener('click', async () => {
   const q = currentQuantity();
-  if (!q) { text($('quantity-preview'), 'Enter an amount.'); return; }
-  const name = flow.saved?.name ?? flow.record.name ?? '';
-  if (await writeEntry(flow.record, q, name)) { flow.saved = null; await show('today'); }
+  if (!q || !flow.record) return;
+  // §8.5b: the builder borrows the quantity step. A component is collected,
+  // not logged — the entries are written when the combo is logged.
+  if (flow.forCombo) {
+    comboDraft.components.push({
+      food_name: flow.record.name ?? '',
+      product_id: flow.record.product_id,
+      quantity: q,
+      occasion_category: flow.record.occasion_category,
+      category_map_version: flow.record.category_map_version,
+      record: flow.record,
+    });
+    flow.forCombo = false;
+    step('add-combo');
+    await renderComboBuilder();
+    return;
+  }
+  if (await writeEntry(flow.record, q, flow.record.name ?? '')) await show('today');
 });
 
 $('m-volume').addEventListener('input', syncP3);
@@ -1133,10 +1272,156 @@ $('manual-submit').addEventListener('click', async () => {
   if ($('m-save').checked) {
     await saveProduct(store.backend, record, { name: record.name });
   }
+
+  // §8.5b: a manual product can be a combo component too. The manual path does
+  // not pass through the quantity step, so the draft is collected here.
+  if (flow.forCombo) {
+    comboDraft.components.push({
+      food_name: record.name,
+      product_id: record.product_id,
+      quantity,
+      occasion_category: record.occasion_category,
+      category_map_version: record.category_map_version,
+      record,
+    });
+    flow.forCombo = false;
+    step('add-combo');
+    await renderComboBuilder();
+    return;
+  }
   if (await writeEntry(record, quantity, record.name)) await show('today');
 });
 
+/* ---- §8.5b combos ---- */
+
+let comboStore;
+/** The component being built, if the quantity step was entered from the builder. */
+const comboDraft = { name: '', components: [] };
+
+/**
+ * §8.5b: one entry per component, scored and built exactly as a direct log is.
+ * The component's ORIGINAL source and product_id are kept — a combo is not a
+ * source — so a coffee logged here and a coffee logged directly are the same
+ * product and share one history for §7.2.
+ */
+function comboScoreAndBuild(component, meta) {
+  const scored = scoreEntry(component.record, component.quantity);
+  if (!scored.created) return null;
+  return buildEntry(scored, component.record, {
+    entry_id: meta.entry_id,
+    product_id: component.product_id,
+    food_name: component.food_name,
+    quantity: component.quantity,
+    local_date: meta.local_date,
+    occasion_category: component.occasion_category,
+    category_map_version: component.category_map_version,
+    combo_id: meta.combo_id,
+    combo_name: meta.combo_name,
+  });
+}
+
+async function logComboNow(combo) {
+  const stamp = Date.now();
+  try {
+    await logCombo(store, combo, {
+      local_date: localDate(),
+      entryId: (c, i) => `e-${stamp}-${i}-${Math.random().toString(36).slice(2, 6)}`,
+      scoreAndBuild: comboScoreAndBuild,
+    });
+    await show('today');
+  } catch (err) {
+    // §8.5b atomicity: nothing was written. Say which component and why.
+    const note = document.createElement('div');
+    note.className = 'notice';
+    text(note, `Not logged — ${err.detail ?? err.message}`);
+    $('today-combos').prepend(note);
+  }
+}
+
+/** The one-tap strip on Today. This is what the round exists for. */
+async function renderCombos() {
+  const host = $('today-combos');
+  host.replaceChildren();
+  const combos = await comboStore.all();
+  for (const combo of combos) {
+    const b = document.createElement('button');
+    b.className = 'add';
+    text(b, `${combo.name} — log ${combo.components.length} entries`);
+    b.addEventListener('click', () => logComboNow(combo));
+    host.append(b);
+  }
+}
+
+async function renderComboBuilder() {
+  text($('combo-error'), '');
+  $('combo-name').value = comboDraft.name;
+
+  const list = $('combo-list');
+  list.replaceChildren();
+  const combos = await comboStore.all();
+  if (combos.length === 0) {
+    const p = document.createElement('p');
+    p.className = 'empty';
+    text(p, 'No combos yet.');
+    list.append(p);
+  }
+  for (const combo of combos) {
+    const row = document.createElement('div');
+    row.className = 'combo-draft-row';
+    const label = document.createElement('span');
+    text(label, `${combo.name} · ${combo.components.map((c) => c.food_name).join(', ')}`);
+    const del = document.createElement('button');
+    text(del, 'Delete');
+    del.addEventListener('click', async () => {
+      await comboStore.remove(combo.combo_id);
+      await renderComboBuilder();
+    });
+    row.append(label, del);
+    list.append(row);
+  }
+
+  const draft = $('combo-draft');
+  draft.replaceChildren();
+  for (const [i, c] of comboDraft.components.entries()) {
+    const row = document.createElement('div');
+    row.className = 'combo-draft-row';
+    const label = document.createElement('span');
+    text(label, `${c.food_name} — ${formatAmount(c.quantity.value)} ${c.quantity.unit}`);
+    const del = document.createElement('button');
+    text(del, 'Remove');
+    del.addEventListener('click', async () => {
+      comboDraft.components.splice(i, 1);
+      await renderComboBuilder();
+    });
+    row.append(label, del);
+    draft.append(row);
+  }
+}
+
+$('combo-name').addEventListener('input', () => { comboDraft.name = $('combo-name').value; });
+
+$('combo-add-component').addEventListener('click', () => {
+  comboDraft.name = $('combo-name').value;
+  flow.forCombo = true;
+  step('add-choose');
+});
+
+$('combo-save').addEventListener('click', async () => {
+  comboDraft.name = $('combo-name').value.trim();
+  try {
+    const combo = buildCombo({ name: comboDraft.name, components: comboDraft.components });
+    await comboStore.put(combo);
+    comboDraft.name = '';
+    comboDraft.components = [];
+    await renderComboBuilder();
+    text($('combo-error'), '');
+  } catch (err) {
+    text($('combo-error'), err.detail ?? err.message);
+  }
+});
+
 store = await openStore();
+comboStore = new ComboStore(store.backend);
 if (store.backend instanceof MemoryBackend) {
   const n = document.createElement('div');
   n.className = 'notice';
