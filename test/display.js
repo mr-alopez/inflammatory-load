@@ -290,13 +290,42 @@ function suiteO() {
   check('O', '§6.6: no produced string contains a verdict word or imperative',
     offenders.length === 0, offenders.length ? offenders.join(' | ') : `${produced.length} strings clean`);
 
+  // §2.5, fifth form: the filter above has never removed a string, so it has
+  // never been shown to recognise one. Accept cases are real rendered output.
+  check('O', '§6.6 verdict pattern DISCRIMINATES',
+    ['a bad day', 'you should avoid this', 'a clean week', 'try this instead']
+      .every((s) => VERDICTS.test(s))
+    && produced.every((s) => !VERDICTS.test(s))
+    && ['2026-09-14: +99.0 · High', '27 g added sugar'].every((s) => !VERDICTS.test(s)),
+    `4 verdicts caught, ${produced.length} rendered strings cleared`);
+
+  /**
+   * §6.6 names eight verdict words literally. Both this check and test/shell.js
+   * implement the same prohibition on different surfaces, and their patterns had
+   * drifted apart — see the REPORTED note in test/shell.js. This pins the part
+   * that must be true of both: every word §6.6 actually names is caught.
+   */
+  const SEC_6_6_NAMED = ['yay', 'nay', 'bad', 'good', 'avoid', 'cheat', 'clean', 'guilty'];
+  const missed66 = SEC_6_6_NAMED.filter((w) => !VERDICTS.test(`a ${w} thing`));
+  check('O', '§6.6: every verdict word the spec names is caught here',
+    missed66.length === 0, missed66.length ? `not caught: ${missed66.join(', ')}` : '8 named words');
+
   check('O', '§6.6: a high band renders §6.2 and nothing more',
     completedDaySummary('2026-09-14', 99) === '2026-09-14: +99.0 · High');
   check('O', '§6.6: a high window band renders §6.3 and nothing more',
     windowSummary('2026-09-14', 99) === '3 days ending 2026-09-14: +99.0 · High');
+  const BAND_WORD = /Low|Neutral|Elevated|High/;
   check('O', '§4.6: the normalized line carries no band in any branch',
     ['AVAILABLE', 'NO_ENTRIES', 'NO_CALORIE_DATA'].every((status) =>
-      !/Low|Neutral|Elevated|High/.test(normalizedLine({ status, load_per_1000: 1 }))));
+      !BAND_WORD.test(normalizedLine({ status, load_per_1000: 1 }))));
+
+  // The reject case is real output from this same module: §6.2's summary DOES
+  // carry a band, so the pattern is proven to find one where one exists.
+  check('O', '§4.6 band-word pattern DISCRIMINATES',
+    BAND_WORD.test(completedDaySummary('2026-09-14', 99))
+    && BAND_WORD.test(windowSummary('2026-09-14', 99))
+    && !BAND_WORD.test(normalizedLine({ status: 'AVAILABLE', load_per_1000: 1 })),
+    'finds the band in §6.2/§6.3, finds none in §6.3b');
 }
 
 /* ---------- §2.4 display-name audit across every asserted driver ---------- */

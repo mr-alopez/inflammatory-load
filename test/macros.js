@@ -213,6 +213,20 @@ function suiteJ() {
   check('J', '[returned object keys: macros.js] §2.5: no returned shape carries a target, band or colour key',
     badKeys.length === 0, badKeys.length ? badKeys.join(', ') : 'all shapes clean');
 
+  /**
+   * §2.5, fifth form: neither check above had ever flagged a name, so neither
+   * had been shown to separate a forbidden name from a permitted one. Both the
+   * historical near-misses are kept as accept cases — `ring` inside
+   * `driverString` and `band` inside `bandwidth` — because a substring matcher
+   * passes the reject cases and fails these.
+   */
+  check('J', '§2.5 forbidden-token matcher DISCRIMINATES',
+    ['dailyTarget', 'calorieGoal', 'bandLabel', 'colorFor', 'progressRing', 'streak']
+      .every((n) => FORBIDDEN.test(n))
+    && ['driverString', 'macroTotals', 'normalizeWindow', 'windowKcal', 'roundMacro', 'bandwidth']
+      .every((n) => !FORBIDDEN.test(n)),
+    'catches 6 forbidden names, clears 6 permitted ones including driverString and bandwidth');
+
   check('J', '§2.5: macro totals expose exactly the four fields',
     Object.keys(totals).join(',') === 'energy_kcal,protein_g,carbohydrate_g,fat_g',
     Object.keys(totals).join(','));

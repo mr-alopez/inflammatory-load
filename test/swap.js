@@ -10,6 +10,7 @@
  */
 
 import { readFileSync } from 'node:fs';
+import { dirname, join, normalize } from 'node:path';
 import { requestSwap, buildCorpus, rescaleEntry, medianQuantityG, deltaDrivers, SWAP }
   from '../src/swap.js';
 import { swapLine, SWAP_SUPPRESSION } from '../src/display.js';
@@ -237,13 +238,23 @@ function suiteY() {
 
   const IMPORT_RE = /from\s+['"]([^'"]+)['"]/g;
   const importsOf = (f) => [...readFileSync(f, 'utf8').matchAll(IMPORT_RE)].map((m) => m[1]);
+
+  /**
+   * Resolves relative to the importing file. The previous form collapsed both
+   * `./` and `../` to `src/`, so a `../` import resolved to a path that does not
+   * exist, the recursive call threw, and the catch swallowed it — the walk could
+   * not see past a `../` hop and reported nothing about it. Same defect as
+   * test/shell.js carried; fixed in both.
+   */
+  const unresolved = [];
   function reachable(entry, seen = new Set()) {
     for (const spec of importsOf(entry)) {
       if (!spec.startsWith('.')) continue;
-      const path = 'src/' + spec.replace(/^\.\.?\//, '');
+      const path = normalize(join(dirname(entry), spec)).replace(/\\/g, '/');
       if (seen.has(path)) continue;
       seen.add(path);
-      try { reachable(path, seen); } catch { /* leaf */ }
+      if (/\.json$/.test(path)) continue;                   // data leaf
+      try { reachable(path, seen); } catch (e) { unresolved.push(`${path} (${e.code ?? 'ERR'})`); }
     }
     return seen;
   }
@@ -260,20 +271,45 @@ function suiteY() {
   check('Y', '[import graph: src/swap.js, transitive] §7.0: does not route through display',
     ![...swapReach].some((p) => p.endsWith('display.js')),
     [...swapReach].join(', '));
+  check('Y', '§7.0: the import walk has no blind spots — every relative import followed',
+    unresolved.length === 0, unresolved.length ? unresolved.join(', ') : 'all resolved');
   check('Y', '§7.0: §6.5 rendering lives in display and takes a computed result',
     /export function swapLine\(result, sourceEntry\)/.test(readFileSync('src/display.js', 'utf8')));
+
+  // §2.5: assert the slice is the real body before trusting what it does not
+  // contain. A truncated slice contains nothing, which reads as clean.
+  const COMPUTES = /rescaleEntry|buildCorpus|DELTA_THRESHOLD|\.sort\(/;
+  const swapLineBody = readFileSync('src/display.js', 'utf8')
+    .split('export function swapLine')[1].split('\n}')[0];
+  check('Y', '§7.0: the swapLine slice is the real body, not a truncation',
+    swapLineBody.length > 200 && /return lines/.test(swapLineBody),
+    `${swapLineBody.length} chars`);
   check('Y', '§7.0: swapLine does not rescale, re-rank or re-threshold',
-    !/rescaleEntry|buildCorpus|DELTA_THRESHOLD|\.sort\(/.test(
-      readFileSync('src/display.js', 'utf8').split('export function swapLine')[1].split('\n}')[0]));
+    !COMPUTES.test(swapLineBody));
+  check('Y', '§7.0 computation pattern DISCRIMINATES',
+    COMPUTES.test('const c = buildCorpus(e);') && COMPUTES.test('list.sort((a, b) => a - b)')
+    && !COMPUTES.test('return lines;') && !COMPUTES.test('const sorted = alreadySorted;'),
+    'catches corpus/rescale/threshold/sort, allows plain rendering');
 
   // §7.1: the affordance must be uniform — never conditional on score or band.
   const affordance = code.match(/[^\n]*swap-ask[^\n]*/g) ?? [];
   check('Y', '§7.1: the affordance exists in the shell', affordance.length > 0,
     `${affordance.length} references`);
-  const conditional = affordance.filter((l) =>
-    /score|band|Elevated|High|Low|>=|<=|[^=!<>]>[^=]|[^=!<>]<[^=]|\?\s*'/.test(l));
+  const CONDITIONAL = /score|band|Elevated|High|Low|>=|<=|[^=!<>]>[^=]|[^=!<>]<[^=]|\?\s*'/;
+  const conditional = affordance.filter((l) => CONDITIONAL.test(l));
   check('Y', '[script: index.html .swap-ask references] §7.1: affordance is not conditional',
     conditional.length === 0, conditional.join(' | ') || 'unconditional in all references');
+
+  // §2.5, fifth form: this had never flagged a line, so it had never been shown
+  // to separate a conditional affordance from an unconditional one.
+  check('Y', '§7.1 conditional-affordance pattern DISCRIMINATES',
+    ['if (entry.score > 2) ask.className = "swap-ask";',
+      'if (band === "High") el.append(ask);',
+      "ask.className = flag ? 'swap-ask' : 'hidden';"].every((l) => CONDITIONAL.test(l))
+    && ["ask.className = 'swap-ask';",
+      "ask.addEventListener('click', () => showSwap(entry, el, ask));",
+      "if (e.target.closest('.swap-ask, .entry-remove')) return;"].every((l) => !CONDITIONAL.test(l)),
+    'catches score/band/ternary gating, allows the unconditional forms in use');
 
   check('Y', `CATMAP-1 has real coverage: ${RULE_COUNT} tag rules`, RULE_COUNT >= 100);
   check('Y', 'CATMAP-1: specific keys precede general ones',

@@ -45,6 +45,19 @@ const line = (ok, text) => { if (!ok) failures++; console.log(`  ${ok ? 'ok  ' :
 console.log('\nDIRECTION 1 — §11 citations against §10 headings (D6)');
 console.log('='.repeat(53));
 
+/**
+ * §2.5, fifth form. Both comparisons below are set differences, and a set
+ * difference of two EMPTY sets is empty. If the heading regex and the citation
+ * regex both broke, `phantom` and `orphan` would both be empty and the audit
+ * would report clean having parsed nothing at all.
+ *
+ * Assert the parse engaged before trusting what it found.
+ */
+line(headings.length > 0, `§10 headings parsed: ${headings.length}`);
+line(cited.length > 0, `§11 citations parsed: ${cited.length}`);
+line(blockOf(headings[0] ?? '').length > 100,
+  `vector blocks resolve: ${headings[0] ?? '(none)'} is ${blockOf(headings[0] ?? '').length} chars`);
+
 const phantom = cited.filter((v) => !headings.includes(v));
 const orphan = headings.filter((v) => !cited.includes(v));
 line(phantom.length === 0, `no §11 citation without a §10 heading${phantom.length ? `: ${phantom.join(' ')}` : ''}`);
@@ -85,8 +98,19 @@ for (const id of agg) {
 
 // Base convention: every entry-level vector states all four scored nutrients.
 // "Entry-level" = carries an attribute table. Others are listed, not failed.
-const tabled = headings.filter((id) => /\|\s*`P\d`|\|\s*`A\d`/.test(blockOf(id)));
+const TABLE_ROW = /\|\s*`P\d`|\|\s*`A\d`/;
+const tabled = headings.filter((id) => TABLE_ROW.test(blockOf(id)));
 const untabled = headings.filter((id) => !tabled.includes(id));
+
+/**
+ * §2.5, fifth form. If TABLE_ROW broke, `tabled` would be empty, the loop below
+ * would run zero times, and every vector would land in the `untabled` note —
+ * printed as information, not as a failure. The audit would report clean having
+ * checked no vector against the base convention.
+ */
+line(tabled.length > 0, `entry-level vectors detected: ${tabled.length}`);
+line(TABLE_ROW.test('| `P1` | 12 g | 0.03 |') && !TABLE_ROW.test('No table here, just prose.'),
+  'the attribute-table pattern separates a table row from prose');
 for (const id of tabled) {
   const b = blockOf(id);
   const missing = NUTRIENTS.filter((f) => !b.includes(`\`${f}\``));
