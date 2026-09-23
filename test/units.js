@@ -1,12 +1,13 @@
 /**
- * Volume units and bulk density — spec v1.8 §3.3, §3.3a step 2b.
- * Vectors AV-28, AV-29.
+ * Volume units, bulk density and the quantity line — spec v1.9 §3.3, §3.3a
+ * step 2b, §6.1b. Vectors AV-28, AV-29, AV-30.
  *
  * Suites:
  *   AA. AV-28 — 12 fl oz of a water-based beverage
  *   AB. AV-29 — a scoopable solid through BDMAP-1, and the refusal without one
  *   AC. §3.3 fractional input, and the form constraint that follows the same
  *       rule the conversion does
+ *   AD. AV-30 — §6.1b renders the quantity as entered, and §6.1 is unchanged
  */
 
 import { scoreEntry, resolveVolumeDensity, QUANTITY_UNITS, ENTRY_VOLUME_UNITS } from '../src/scoring.js';
@@ -18,7 +19,7 @@ import { entryLine, quantityAsEntered, formatAmount } from '../src/display.js';
 
 const TOL = 1e-6;
 let pass = 0, fail = 0;
-const results = { AA: [], AB: [], AC: [] };
+const results = { AA: [], AB: [], AC: [], AD: [] };
 const discrimination = [];
 
 const fmt = (n) => (typeof n === 'number'
@@ -78,9 +79,9 @@ function suiteAA() {
   eq('AA', 'AV-28: quantity_unit stored as entered', entry.quantity_unit, 'fl oz');
   near('AA', 'AV-28: quantity_g is the canonical quantity', entry.quantity_g, 354.88235475);
   eq('AA', 'AV-28: the quantity renders as entered', quantityAsEntered(entry), '12 fl oz');
-  // REPORTED: §6 defines no string that renders a quantity, so this is NOT in
-  // any §6 line. §6.1 is `{food_name} — {score}` and still is.
-  check('AA', 'REPORTED: §6.1 does not render the quantity — §6 defines no slot for it',
+  // §6.1b (v1.9) renders it. §6.1's first line still does not — the two lines
+  // are separate, which is the whole reason §6.1b is its own subsection.
+  check('AA', "§6.1's first line still carries no quantity",
     !entryLine(entry)[0].includes('fl oz'), entryLine(entry)[0]);
 
   // Discrimination: a fluid ounce is not an ounce of mass.
@@ -277,16 +278,85 @@ function suiteAC() {
     'search carries no foodPortions, so no density derives and the worked case is gram-only']);
 }
 
+/* ================================================================== *
+ * SUITE AD — AV-30, §6.1b the quantity renders as entered
+ * ================================================================== */
+
+function suiteAD() {
+  // §3.3a step 1 from USDA foodPortions: 1 cup = 248 g → density 1.0482.
+  const usdaCoffee = {
+    name: 'Coffee, brewed', source: 'USDA', product_id: 'usda:171881', classifications: {},
+    density_class: null, bulk_class: null,
+    derived_density: { mass_g: 248, volume_ml: 236.5882365 },
+    reported: { added_sugar_g: 0, sodium_mg: 2, saturated_fat_g: 0, fiber_g: 0,
+      energy_kcal: 1, protein_g: 0.1, carbohydrate_g: 0, fat_g: 0 },
+  };
+  const r = scoreEntry(usdaCoffee, { value: 12, unit: 'fl oz' });
+  check('AD', 'AV-30: the entry is created', r.created === true, r.reason ?? '');
+  check('AD', 'AV-30: quantity_g is 372.0', r.quantity_g.toFixed(1) === '372.0',
+    r.quantity_g.toFixed(3));
+
+  const entry = buildEntry(r, usdaCoffee, {
+    entry_id: 'q-1', food_name: 'Coffee, brewed', quantity: { value: 12, unit: 'fl oz' },
+    local_date: '2026-09-23', occasion_category: 'beverage',
+  });
+
+  const line = quantityAsEntered(entry);
+  eq('AD', 'AV-30: §6.1b renders "12 fl oz"', line, '12 fl oz');
+
+  // The three defects, each visible as a string.
+  check('AD', 'AV-30: it does NOT render the derived mass', !/372/.test(line), line);
+  check('AD', 'AV-30: it does NOT render the converted volume', !/354|ml/.test(line), line);
+  const first = entryLine(entry)[0];
+  check('AD', "AV-30: §6.1's first line is unchanged — name and score only",
+    /^Coffee, brewed — [+-][0-9]+\.[0-9]$/.test(first), first);
+  check('AD', 'AV-30: the quantity is NOT appended to §6.1',
+    !/fl oz/.test(first) && !first.includes(line), first);
+
+  // The fraction is reconstructed, not rounded.
+  const sugarEntry = buildEntry(
+    scoreEntry(sugar, { value: 1 / 3, unit: 'tbsp' }), sugar,
+    { entry_id: 'q-2', food_name: 'Sugar, granulated',
+      quantity: { value: 1 / 3, unit: 'tbsp' }, local_date: '2026-09-23',
+      occasion_category: 'snack' }
+  );
+  eq('AD', 'AV-30: 1/3 tbsp renders as "1/3 tbsp", not "0.33 tbsp"',
+    quantityAsEntered(sugarEntry), '1/3 tbsp');
+
+  // §6.1b's stated denominators, and the decimal fallback beyond them.
+  eq('AD', '§6.1b: halves', formatAmount(0.5), '1/2');
+  eq('AD', '§6.1b: thirds', formatAmount(2 / 3), '2/3');
+  eq('AD', '§6.1b: quarters', formatAmount(0.25), '1/4');
+  eq('AD', '§6.1b: eighths', formatAmount(3 / 8), '3/8');
+  eq('AD', '§6.1b: mixed numbers', formatAmount(1.5), '1 1/2');
+  eq('AD', '§6.1b: a whole number has no fraction', formatAmount(12), '12');
+  eq('AD', '§6.1b: a fifth is not a culinary denominator — decimal, 2 places',
+    formatAmount(0.2), '0.2');
+  eq('AD', '§6.1b: trailing zeros stripped', formatAmount(2.5), '2 1/2');
+  eq('AD', '§6.1b: beyond two places, rounded to two', formatAmount(0.123), '0.12');
+
+  discrimination.push(['AV-30', 'rendering the derived mass', 'categorical',
+    '"372 g" vs "12 fl oz" — differ in number and unit']);
+  discrimination.push(['AV-30', 'rendering the converted volume', 'categorical',
+    '"354.882 ml" vs "12 fl oz" — right as a volume, wrong as the quantity entered']);
+  discrimination.push(['AV-30', 'appending the quantity to §6.1 instead of its own line',
+    'categorical',
+    '"Coffee, brewed — +0.4 · 12 fl oz" contains the right substring and breaks §6.1\'s format']);
+  discrimination.push(['AV-30', 'rounding the fraction to a decimal', 'categorical',
+    '"0.33 tbsp" vs "1/3 tbsp" — a rounding of the entered value, not a rendering of it']);
+}
+
 /* ---------------- run ---------------- */
 
-suiteAA(); suiteAB(); suiteAC();
+suiteAA(); suiteAB(); suiteAC(); suiteAD();
 
 const heads = {
   AA: 'SUITE AA — AV-28, volume entry in fluid ounces',
   AB: `SUITE AB — AV-29, scoopable solids via ${BDMAP_VERSION}`,
   AC: 'SUITE AC — §3.3 fractional input, §8.1 result order and labels',
+  AD: 'SUITE AD — AV-30, §6.1b the quantity renders as entered',
 };
-for (const k of ['AA', 'AB', 'AC']) {
+for (const k of ['AA', 'AB', 'AC', 'AD']) {
   console.log(`\n${heads[k]}`);
   console.log('='.repeat(heads[k].length));
   for (const line of results[k]) console.log(line);

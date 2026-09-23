@@ -19,7 +19,7 @@
  * notification or badge reporting a load, and the way to guarantee that is to
  * register no such handler at all.
  */
-const CACHE_VERSION = 'v9';
+const CACHE_VERSION = 'v10';
 const CACHE = `inflammatory-load-shell-${CACHE_VERSION}`;
 
 /**

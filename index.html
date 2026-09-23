@@ -35,6 +35,9 @@
            padding: 12px 14px; margin: 10px 0; }
   .entry-line { font-variant-numeric: tabular-nums; }
   .drivers, .macros, .incomplete { color: var(--dim); font-size: 13.5px; margin-top: 3px; }
+  /* §6.1b: the quantity as entered, beneath the entry line and above drivers. */
+  .quantity { color: var(--dim); font-size: 13.5px; margin-top: 3px;
+              font-variant-numeric: tabular-nums; }
   .muted { color: var(--dim); }
   .empty { color: var(--dim); padding: 28px 0; }
   section[hidden] { display: none; }
@@ -270,9 +273,7 @@
   <!-- ── Settings — the optional USDA key (§8.2, §13.1) ───────────── -->
   <section id="settings" hidden>
     <h2>USDA FoodData Central</h2>
-    <p class="muted">Optional. The app works without it, using Open Food Facts alone.
-      A key is free from FoodData Central. It is stored on this device only and is
-      never sent anywhere except to FoodData Central.</p>
+    <p class="muted" id="usda-key-note"></p>
     <label class="field">API key
       <input id="usda-key" autocomplete="off" spellcheck="false"></label>
     <button class="add" id="usda-save">Save key</button>
@@ -383,6 +384,17 @@ function renderEntry(entry) {
   line.className = 'entry-line';
   text(line, head);
   el.append(line);
+
+  // §6.1b — beneath §6.1's first line, above drivers. The quantity AS ENTERED,
+  // never the derived quantity_g: the user entered a volume, and showing a mass
+  // they did not enter invites a question the method page already answers.
+  const qty = quantityAsEntered(entry);
+  if (qty) {
+    const q = document.createElement('div');
+    q.className = 'quantity';
+    text(q, qty);
+    el.append(q);
+  }
 
   if (driverLine) {
     const d = document.createElement('div');
@@ -755,6 +767,8 @@ const USDA_KEY = 'usda_api_key';
 const readKey = () => { try { return localStorage.getItem(USDA_KEY) ?? ''; } catch { return ''; } };
 
 function renderSettings() {
+  // §13.1 / G3: read from the module, never transcribed into the shell.
+  text($('usda-key-note'), DISC.USDA_KEY_NOTE);
   $('usda-key').value = readKey();
   text($('usda-status'), readKey()
     ? 'A key is saved on this device. USDA is searched alongside Open Food Facts.'

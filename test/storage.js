@@ -6,6 +6,7 @@
  *   B. Immutability (§8.4) — the property the audit trail rests on
  *   C. Migration (§8.6) — adds fields, alters no value
  *   D. Removal (§8.4) — today only, and never an edit path
+ *   E. Migration stamps (§8.6) — a hop stamps its own target, never SCHEMA_VERSION
  */
 
 import { EntryStore, StoreRejection, STORE_ERROR, migrateStore, migrateEntryV1toV2, migrateEntryV2toV3,
@@ -16,9 +17,10 @@ import { ENTRY_FIELDS, MIGRATION_PROTECTED, STORES, META_KEYS, SCHEMA_VERSION,
 import { scoreEntry } from '../src/scoring.js';
 import { buildEntry } from '../src/entry.js';
 import { fixtures } from './fixtures.js';
+import { readFileSync } from 'node:fs';
 
 let pass = 0, fail = 0;
-const results = { A: [], B: [], C: [], D: [] };
+const results = { A: [], B: [], C: [], D: [], E: [] };
 
 function check(suite, label, ok, note = '') {
   ok ? pass++ : fail++;
@@ -301,20 +303,100 @@ async function suiteD() {
     `${todays.length} entries, sum ${todays.reduce((s, e) => s + e.score, 0)}, expected ${b.score}`);
 }
 
+/* ================================================================== *
+ * SUITE E — §8.6 migration hops stamp a LITERAL version
+ *
+ * A standing check, not a vector. The defect has occurred TWICE now, in two
+ * different hops: a hop that stamps `SCHEMA_VERSION` claims a shape it knows
+ * nothing about, and makes every later hop skip — `if (v < 4)` is false once
+ * the V2→V3 hop has already written 4.
+ *
+ * Fixed once in V1→V2 and reintroduced in V2→V3 is the pattern W1 exists for,
+ * so it is enforced mechanically rather than remembered. It carries inline
+ * accept and reject cases (§2.5, fifth form), so it has judged an instance
+ * before the next migration is ever written.
+ * ================================================================== */
+
+async function suiteE() {
+  const src = readFileSync('src/store.js', 'utf8');
+
+  // Each hop's body, by name, with comments stripped: the prose here explains
+  // the rule and would otherwise be read as a violation of it (Y4, one level up).
+  const stripped = src.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/.*$/gm, '$1 ');
+  const hops = [...stripped.matchAll(
+    /export function (migrateEntryV(\d+)toV(\d+))\s*\([^)]*\)\s*\{([\s\S]*?)\n\}/g
+  )].map((m) => ({ name: m[1], to: Number(m[3]), body: m[4] }));
+
+  check('E', '§8.6: the hop scan found every migration hop', hops.length >= 3,
+    hops.map((h) => h.name).join(', ') || 'NONE FOUND — the scan is broken, not the code');
+
+  const stampsReference = (body) => /schema_version\s*=\s*SCHEMA_VERSION\b/.test(body);
+  const stampsLiteral = (body, to) =>
+    new RegExp(`schema_version\\s*=\\s*${to}\\b`).test(body);
+
+  for (const h of hops) {
+    check('E', `§8.6: ${h.name} stamps the literal ${h.to}, not SCHEMA_VERSION`,
+      !stampsReference(h.body) && stampsLiteral(h.body, h.to),
+      stampsReference(h.body) ? 'stamps SCHEMA_VERSION — every later hop will be skipped'
+        : stampsLiteral(h.body, h.to) ? `stamps ${h.to}` : `stamps neither ${h.to} nor SCHEMA_VERSION`);
+  }
+
+  // §2.5, fifth form. The check has judged an instance whether or not the
+  // codebase currently contains one.
+  const rejects = [
+    'migrated.schema_version = SCHEMA_VERSION;',
+    '  migrated.schema_version  =  SCHEMA_VERSION ;',
+  ];
+  const accepts = ['migrated.schema_version = 3;', 'migrated.schema_version = 4;'];
+  check('E', '§8.6 stamp check DISCRIMINATES',
+    rejects.every(stampsReference) && accepts.every((a) => !stampsReference(a))
+    && stampsLiteral('migrated.schema_version = 3;', 3)
+    && !stampsLiteral('migrated.schema_version = 3;', 4),
+    `${rejects.length} rejected, ${accepts.length} accepted, and 3 is not read as 4`);
+
+  // The consequence the rule exists to prevent, demonstrated rather than asserted:
+  // a V2→V3 hop stamping SCHEMA_VERSION makes migrateStore skip the V3→V4 hop.
+  const skipped = (stamp) => !((stamp ?? 3) < SCHEMA_VERSION);
+  check('E', '§8.6: stamping the current version would skip every later hop',
+    skipped(SCHEMA_VERSION) && !skipped(3),
+    `stamping ${SCHEMA_VERSION} skips the next hop; stamping 3 does not`);
+
+  // And end to end: a SCHEMA-1 entry must arrive at SCHEMA_VERSION through
+  // every hop, not land short because one of them over-stamped.
+  const backend = new MemoryBackend();
+  await backend.put(STORES.ENTRIES, 'e-hop', {
+    entry_id: 'e-hop', product_id: 'off:hop', source: 'OFF',
+    quantity_value: 100, quantity_unit: 'g',
+    reported: { added_sugar_g: 1, sodium_mg: 1, saturated_fat_g: 1, fiber_g: 1 },
+    as_consumed: { added_sugar_g: 1, sodium_mg: 1, saturated_fat_g: 1, fiber_g: 1 },
+    occasion_category: 'snack', category_map_version: 'CATMAP-1',
+    coeff_version: 'COEFF-1', score: 0.1, local_date: '2026-09-10', schema_version: 1,
+  });
+  await backend.put(STORES.META, META_KEYS.SCHEMA_VERSION, 1);
+  await migrateStore(backend);
+  const arrived = await backend.get(STORES.ENTRIES, 'e-hop');
+  check('E', `§8.6: a SCHEMA-1 entry arrives at ${SCHEMA_VERSION} through every hop`,
+    arrived.schema_version === SCHEMA_VERSION, `landed at ${arrived.schema_version}`);
+  check('E', '§8.5b: and gains no combo field on the way',
+    !('combo_id' in arrived) && !('combo_name' in arrived));
+}
+
 /* ---------------- run ---------------- */
 
 await suiteA();
 await suiteB();
 await suiteC();
 await suiteD();
+await suiteE();
 
 const heads = {
   A: 'SUITE A — AV-21, §8.6a PRE_SCHEMA_2 carve-out',
   B: 'SUITE B — §8.4 immutability (reported separately)',
   C: 'SUITE C — §8.6 migration adds fields, alters no value',
   D: 'SUITE D — §8.4 removal is today-only',
+  E: 'SUITE E — §8.6 migration hops stamp a literal version',
 };
-for (const k of ['A', 'B', 'C', 'D']) {
+for (const k of ['A', 'B', 'C', 'D', 'E']) {
   console.log(`\n${heads[k]}`);
   console.log('='.repeat(heads[k].length));
   for (const line of results[k]) console.log(line);

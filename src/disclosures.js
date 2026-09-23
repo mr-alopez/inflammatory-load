@@ -116,3 +116,15 @@ of oats varies with how it is packed, a tablespoon of water does not. The entry 
 the quantity came from this table, so a spooned amount is always distinguishable from a
 weighed one. A solid with no entry in the table cannot be entered by spoon or cup at all —
 it asks for grams instead of guessing.`;
+
+/**
+ * §13.1 Settings. A literal §13 string, so it lives here with the others (G3):
+ * one module holds every fixed user-visible string, and the shell transcribes
+ * none of them.
+ *
+ * §8.2 (v1.9) stopped claiming the app is fully functional without a key. This
+ * is where a user can act on that — at the field where the key is entered.
+ */
+export const USDA_KEY_NOTE = `Optional, free, and stored on this device only. Without it,
+searching for plain foods like coffee or sugar returns branded products instead. Scanning
+barcodes works either way.`;

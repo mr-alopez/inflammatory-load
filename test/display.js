@@ -23,6 +23,7 @@ import { macroTotals, normalizeWindow } from '../src/macros.js';
 import { migrateEntryV1toV2, dayMacroLinePolicy } from '../src/store.js';
 import { buildEntry } from '../src/entry.js';
 import { fixtures } from './fixtures.js';
+import { isVerdict, SEC_6_6_NAMED, VERDICT_CASES } from './prohibited.js';
 
 let pass = 0, fail = 0;
 const results = { K: [], L: [], M: [], N: [], O: [] };
@@ -257,7 +258,12 @@ function suiteN() {
  * ================================================================== */
 
 function suiteO() {
-  const VERDICTS = /\b(yay|nay|bad|good|avoid|cheat|clean|guilty|try|choose|should|instead)\b/i;
+  // §6.6 (v1.9): ONE list, imported from test/prohibited.js and shared with
+  // test/shell.js. This file previously carried a different one — it caught
+  // `try`, `choose` and `instead`, which shell.js did not, and missed
+  // `well done`, `nice work`, `keep it up`, `healthy`, `unhealthy` and
+  // `must eat`, which shell.js did catch. Neither was a superset.
+  const VERDICTS = { test: isVerdict };
   // V4 added `ring`, `gauge` and `streak`. Matched against camelCase-split
   // TOKENS, not as substrings: `ring` is inside `driverString`, and a substring
   // match flags a function that does nothing of the kind.
@@ -290,25 +296,26 @@ function suiteO() {
   check('O', '§6.6: no produced string contains a verdict word or imperative',
     offenders.length === 0, offenders.length ? offenders.join(' | ') : `${produced.length} strings clean`);
 
-  // §2.5, fifth form: the filter above has never removed a string, so it has
-  // never been shown to recognise one. Accept cases are real rendered output.
-  check('O', '§6.6 verdict pattern DISCRIMINATES',
-    ['a bad day', 'you should avoid this', 'a clean week', 'try this instead']
-      .every((s) => VERDICTS.test(s))
-    && produced.every((s) => !VERDICTS.test(s))
-    && ['2026-09-14: +99.0 · High', '27 g added sugar'].every((s) => !VERDICTS.test(s)),
-    `4 verdicts caught, ${produced.length} rendered strings cleared`);
+  // §2.5, fifth form. The SAME cases the shell suite runs, so the two checks
+  // cannot drift again: a word one catches is a word the other catches.
+  const missedR = VERDICT_CASES.rejects.filter((v) => !isVerdict(v));
+  const wrongA = VERDICT_CASES.accepts.filter((v) => isVerdict(v));
+  check('O', '§6.6 verdict list DISCRIMINATES — the shared cases, both directions',
+    missedR.length === 0 && wrongA.length === 0 && produced.every((s) => !isVerdict(s)),
+    missedR.length ? `missed: ${missedR.join(' | ')}`
+      : wrongA.length ? `wrongly flagged: ${wrongA.join(' | ')}`
+        : `${VERDICT_CASES.rejects.length} caught, ${VERDICT_CASES.accepts.length} cleared, `
+          + `${produced.length} rendered strings clean`);
 
-  /**
-   * §6.6 names eight verdict words literally. Both this check and test/shell.js
-   * implement the same prohibition on different surfaces, and their patterns had
-   * drifted apart — see the REPORTED note in test/shell.js. This pins the part
-   * that must be true of both: every word §6.6 actually names is caught.
-   */
-  const SEC_6_6_NAMED = ['yay', 'nay', 'bad', 'good', 'avoid', 'cheat', 'clean', 'guilty'];
-  const missed66 = SEC_6_6_NAMED.filter((w) => !VERDICTS.test(`a ${w} thing`));
+  const missed66 = SEC_6_6_NAMED.filter((w) => !isVerdict(`a ${w} thing`));
   check('O', '§6.6: every verdict word the spec names is caught here',
     missed66.length === 0, missed66.length ? `not caught: ${missed66.join(', ')}` : '8 named words');
+
+  // The list is one list. Each of these used to pass one check and fail the other.
+  check('O', '§6.6: this suite and the shell suite judge identically',
+    ['Well done', 'try this instead', 'keep it up', 'an unhealthy choice']
+      .every((s) => isVerdict(s)),
+    'words that previously passed one check and failed the other');
 
   check('O', '§6.6: a high band renders §6.2 and nothing more',
     completedDaySummary('2026-09-14', 99) === '2026-09-14: +99.0 · High');

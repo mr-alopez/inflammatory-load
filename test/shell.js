@@ -14,6 +14,8 @@
  */
 
 import { readFileSync } from 'node:fs';
+import { isVerdict, SEC_6_6_NAMED, VERDICT_CASES, NON_RENDERED_IDENTIFIERS }
+  from './prohibited.js';
 
 let pass = 0, fail = 0;
 const results = [];
@@ -137,47 +139,53 @@ discriminates('§13.3 notification APIs', usesNotifyApi, {
 
 /* ---------- §6.6: no verdict word or imperative in user-visible text ---------- */
 
-const VERDICTS = /\b(yay|nay|bad|good|avoid|cheat|clean|guilty|healthy|unhealthy|should|must eat|well done|nice work|keep it up)\b/i;
+/**
+ * §6.6 (v1.9): ONE list, imported. It lives in test/prohibited.js and is shared
+ * with test/display.js, which previously carried a different one.
+ *
+ * Applied to rendered text, never to identifiers. An element id is not
+ * user-visible text, so `add-choose` is not a verdict — that false positive is
+ * what proved the two-list split was the wrong shape, and it is now an explicit
+ * must-accept case rather than a reason to weaken the list.
+ */
 const literals = [...code.html.matchAll(/'([^'\n]{2,})'|"([^"\n]{2,})"|`([^`\n]{2,})`/g)]
   .map((m) => m[1] ?? m[2] ?? m[3]);
 const htmlText = code.html.replace(/<script[\s\S]*?<\/script>/g, ' ')
   .replace(/<style[\s\S]*?<\/style>/g, ' ').replace(/<[^>]+>/g, ' ');
-const visible = [...literals, htmlText];
-const offenders = visible.filter((s) => VERDICTS.test(s));
-check('[string literals + markup text: index.html] §6.6: no verdict word or imperative in any shell string',
-  offenders.length === 0, offenders.length ? offenders.join(' | ') : `${literals.length} literals scanned`);
 
-/**
- * REPORTED — two lists guard one prohibition, and they have drifted.
- *
- * §6.6 is implemented by two checks on two surfaces: this one over the shell's
- * string literals, and test/display.js over the strings the display module
- * produces. Neither pattern is a superset of the other:
- *
- *   here only:        well done, nice work, keep it up, healthy, unhealthy, must eat
- *   display.js only:  try, choose, instead
- *
- * So "Well done" passes the display check and "instead" passes this one. Both
- * had flagged nothing ever, so the divergence was invisible.
- *
- * NOT resolved here. A naive union is wrong: `\bchoose\b` matches the shell's
- * own element id `add-choose`, and Y4's rule is to narrow the scanned surface,
- * not to weaken the list — but these two checks scan deliberately different
- * surfaces, so which list belongs on which surface is a §6.6 question, not a
- * mechanical one. What must be true of both is asserted instead.
- */
-const SEC_6_6_NAMED = ['yay', 'nay', 'bad', 'good', 'avoid', 'cheat', 'clean', 'guilty'];
-const missed66 = SEC_6_6_NAMED.filter((w) => !VERDICTS.test(`a ${w} thing`));
-check('§6.6: every verdict word the spec names is caught here',
+// The scanned surface is narrowed, not the list (Y4). An id or class attribute
+// value is an identifier; strip those before judging what is left.
+const identifierValues = new Set(
+  [...code.html.matchAll(/\b(?:class|id|data-screen|for)\s*=\s*["']([^"']+)["']/g)]
+    .flatMap((m) => m[1].split(/\s+/))
+);
+const renderedLiterals = literals.filter((s) => !identifierValues.has(s)
+  && !/^[a-z][a-z0-9-]*$/.test(s));      // bare kebab tokens are selectors, not prose
+const visible = [...renderedLiterals, htmlText];
+const offenders = visible.filter(isVerdict);
+check('[rendered strings + markup text: index.html] §6.6: no verdict word or imperative in any rendered string',
+  offenders.length === 0,
+  offenders.length ? offenders.join(' | ') : `${renderedLiterals.length} rendered strings scanned`);
+
+// The surface narrowing must actually narrow something, or it is decoration.
+check('§6.6: identifiers are excluded from the scan, and there are some to exclude',
+  identifierValues.size > 10 && renderedLiterals.length < literals.length,
+  `${identifierValues.size} identifiers, ${literals.length} literals → ${renderedLiterals.length} rendered`);
+
+const missed66 = SEC_6_6_NAMED.filter((w) => !isVerdict(`a ${w} thing`));
+check('§6.6: every verdict word the spec names is caught',
   missed66.length === 0, missed66.length ? `not caught: ${missed66.join(', ')}` : '8 named words');
 
-discriminates('§6.6 verdict words', (s) => VERDICTS.test(s), {
-  rejects: ['a bad choice', 'Well done', 'you should avoid this', 'a clean day', 'unhealthy'],
-  // Real strings the app renders. A guard that flags these would be weakened,
-  // not fixed — which is how a prohibition list dies.
-  accepts: ['Today so far', 'Press and hold an entry to remove it.',
-    'Not enough history yet to suggest an alternative.', 'goodness'],
-});
+discriminates('§6.6 verdict words', isVerdict, VERDICT_CASES);
+
+// §6.6 governs rendered text. An identifier carrying a verdict word is not one,
+// and the scan must not reach it.
+check('§6.6: an element id carrying a verdict word is not judged',
+  NON_RENDERED_IDENTIFIERS.every((id) => !visible.includes(id)),
+  NON_RENDERED_IDENTIFIERS.filter((id) => visible.includes(id)).join(', ') || 'none reach the scan');
+check('§6.6 discriminates on surface: add-choose IS a verdict by text and IS NOT scanned',
+  isVerdict('add-choose') && !visible.includes('add-choose'),
+  'the list still matches it; the surface excludes it');
 
 /**
  * The literal scanner's reach, asserted rather than assumed. It reads
