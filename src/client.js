@@ -163,10 +163,37 @@ const USDA_NUTRIENT = {
 const USDA_VOLUME_ML = { cup: 236.5882365, 'fl oz': 29.5735295625, tbsp: 14.78676478125,
   tsp: 4.92892159375, ml: 1, liter: 1000, l: 1000 };
 
+/**
+ * The unit may be in `measureUnit.name` OR in `modifier`, and SR Legacy is the
+ * case that matters: it sets `measureUnit.name` to the literal string
+ * "undetermined" and puts the real unit in `modifier`. "undetermined" is
+ * truthy, so reading measureUnit first and falling back with `??` never falls
+ * back — brewed coffee returned `{measureUnit: "undetermined", modifier: "cup",
+ * gramWeight: 248}` and derived nothing.
+ *
+ * Both fields are tried against the unit table instead. §2.5: a fixture written
+ * from the shape I expected passed while the shape the service returns did not.
+ */
+function portionMl(p) {
+  for (const raw of [p.measureUnit?.name, p.modifier]) {
+    if (!raw) continue;
+    // A parenthetical is a gloss, not the measure: "cup (8 fl oz)" is one cup.
+    // Matching inside it would read this as a fluid ounce and be 8x wrong.
+    const text = String(raw).toLowerCase().replace(/\([^)]*\)/g, ' ').trim();
+    if (USDA_VOLUME_ML[text] !== undefined) return USDA_VOLUME_ML[text];
+    // "1 cup", "fl oz" — the first unit word present, longest name first so
+    // "fl oz" is not read as the "oz" inside it.
+    const word = Object.keys(USDA_VOLUME_ML)
+      .sort((a, b) => b.length - a.length)
+      .find((u) => new RegExp(`(^|[^a-z])${u}([^a-z]|$)`).test(text));
+    if (word) return USDA_VOLUME_ML[word];
+  }
+  return undefined;
+}
+
 export function usdaDerivedDensity(portions = []) {
   for (const p of portions) {
-    const unit = String(p.measureUnit?.name ?? p.modifier ?? '').toLowerCase().trim();
-    const ml = USDA_VOLUME_ML[unit];
+    const ml = portionMl(p);
     const grams = p.gramWeight;
     const amount = p.amount ?? 1;
     if (ml === undefined || !Number.isFinite(grams) || grams <= 0 || !(amount > 0)) continue;

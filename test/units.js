@@ -233,6 +233,27 @@ function suiteAC() {
     236.5882365);
   eq('AC', '§3.3a step 1: a non-volume portion is skipped, not guessed at',
     usdaDerivedDensity([{ amount: 1, gramWeight: 50, measureUnit: { name: 'undetermined' } }]), null);
+
+  /**
+   * The shape USDA SR Legacy ACTUALLY returns, taken from fdcId 171881,
+   * "Beverages, coffee, brewed, breakfast blend". measureUnit.name is the
+   * literal string "undetermined" and the real unit is in `modifier`. A
+   * fixture written from the expected shape passed while this one derived
+   * nothing (§2.5).
+   */
+  const sr = usdaDerivedDensity([
+    { amount: 1.0, gramWeight: 248.0, measureUnit: { name: 'undetermined' }, modifier: 'cup' },
+  ]);
+  check('AC', '§3.3a step 1: the REAL SR Legacy shape derives a density',
+    sr !== null && sr.mass_g === 248, JSON.stringify(sr));
+  near('AC', '§3.3a step 1: brewed coffee is 248 g per cup → 1.048 g/ml',
+    sr.mass_g / sr.volume_ml, 248 / 236.5882365);
+  eq('AC', '§3.3a step 1: a modifier naming no unit still derives nothing',
+    usdaDerivedDensity([{ amount: 1, gramWeight: 50, measureUnit: { name: 'undetermined' }, modifier: 'piece' }]),
+    null);
+  check('AC', '§3.3a step 1: a compound modifier resolves its unit',
+    usdaDerivedDensity([{ amount: 1, gramWeight: 240, measureUnit: { name: 'undetermined' }, modifier: 'cup (8 fl oz)' }])
+      ?.volume_ml === 236.5882365);
   check('AC', '§3.3a step 1: a volume portion is found past a non-volume one',
     usdaDerivedDensity([
       { amount: 1, gramWeight: 50, measureUnit: { name: 'undetermined' } },
