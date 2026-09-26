@@ -1,0 +1,162 @@
+/* Direction B — "Notebook".
+ *
+ * The brief's own image, taken literally: a notebook, not a fitness app. Warm
+ * paper, a serif, and entries written on ruled lines rather than boxed into
+ * cards. Blue-black ink is the only colour, and it marks what can be pressed.
+ * Dark mode is a warm charcoal, never pure black.
+ */
+
+:root {
+  color-scheme: light;
+  --bg: #f6f1e7;          /* paper */
+  --surface: #fbf8f1;     /* a slightly brighter leaf, for controls */
+  --fg: #2a241d;          /* warm ink */
+  --dim: #635a4e;
+  --rule: #ddd3c2;        /* the ruled line */
+  --rule-strong: #b9ad99;
+  --accent: #2f4570;      /* blue-black fountain-pen ink */
+  --accent-ink: #fbf8f1;
+  --field: #fffdf8;
+  /* Lining figures matter here: Georgia's are oldstyle and cannot be switched off, so it
+     comes last. Android resolves ui-serif to Noto Serif, which is lining by default. */
+  --serif: ui-serif, "Iowan Old Style", Charter, "Noto Serif", Cambria, Georgia, serif;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --nav-h: 58px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #1f1c18; --surface: #28241f; --fg: #ede6d8; --dim: #b8ad9c;
+    --rule: #3b362f; --rule-strong: #57503f; --accent: #a8bbe6; --accent-ink: #1f1c18;
+    --field: #24211c;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #1f1c18; --surface: #28241f; --fg: #ede6d8; --dim: #b8ad9c;
+  --rule: #3b362f; --rule-strong: #57503f; --accent: #a8bbe6; --accent-ink: #1f1c18;
+  --field: #24211c;
+}
+
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+[hidden] { display: none !important; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg);
+  font: 17px/1.5 var(--serif); font-variant-numeric: lining-nums tabular-nums;
+  padding-bottom: calc(var(--nav-h) + env(safe-area-inset-bottom));
+}
+header { padding: 18px 20px 4px; }
+h1 { margin: 0; font: italic 400 15px/1.2 var(--serif); color: var(--dim); }
+main { padding: 0 20px 24px; max-width: 620px; margin: 0 auto; }
+h2 { font: 600 13px/1.2 var(--serif); font-variant: small-caps; letter-spacing: .08em;
+     color: var(--dim); margin: 26px 0 4px; text-transform: lowercase; }
+.muted, .empty, .hold-hint { color: var(--dim); }
+.empty { padding: 20px 0; font-style: italic; }
+.hold-hint { font-size: 14px; font-style: italic; margin: 14px 0 0; }
+
+/* ── Today ── */
+#today { display: flex; flex-direction: column; }
+#today > * { order: 2; }
+#today-load, #today-macros, #today .method-link { order: 1; }
+#today .today-actions { order: 3; }
+
+.load { font: 400 40px/1.1 var(--serif); letter-spacing: -.01em; margin: 4px 0 2px; }
+#today-macros { font: 400 15px/1.4 var(--serif); color: var(--dim); margin: 0 0 6px; }
+.method-link { font: italic 400 14px var(--serif) !important; color: var(--accent) !important;
+               background: none !important; border: 0 !important; text-align: left;
+               padding: 2px 0 !important; margin: 0 0 6px !important; text-decoration: underline;
+               text-underline-offset: 3px; }
+
+.today-actions {
+  position: sticky; bottom: var(--nav-h); z-index: 5;
+  background: var(--bg); margin: 14px -20px 0; padding: 10px 20px 12px;
+  border-top: 1px solid var(--rule-strong);
+}
+
+/* ── Buttons: ink on paper, filled only for the primary action ── */
+.add {
+  display: block; width: 100%; margin: 8px 0; padding: 14px 12px; cursor: pointer;
+  font: 600 16px/1.2 var(--sans); border-radius: 22px;
+  background: var(--accent); color: var(--accent-ink); border: 1px solid var(--accent);
+}
+.add.secondary { background: transparent; color: var(--accent); }
+#today-combos .add { background: var(--surface); color: var(--fg); border: 1px solid var(--rule-strong);
+                     font: 400 16px var(--serif); text-align: left; padding: 13px 18px; }
+
+/* ── Entries: written on ruled lines. No boxes, no fills — every line alike. ── */
+.entry { background: transparent; color: var(--fg); border: 0; border-bottom: 1px solid var(--rule);
+         padding: 12px 0 12px; margin: 0; }
+.entry-line { font-size: 18px; }
+.quantity { font: italic 400 15px/1.4 var(--serif); color: var(--fg); }
+.drivers, .macros, .incomplete { color: var(--dim); font-size: 14.5px; margin-top: 2px; }
+.swap-ask { display: inline-block; margin-top: 6px; padding: 0; cursor: pointer; background: none; border: 0;
+            font: italic 400 14px var(--serif); color: var(--accent); text-decoration: underline;
+            text-underline-offset: 3px; }
+.swap-result, .entry-remove { margin-top: 8px; padding-top: 8px; border-top: 1px dotted var(--rule-strong);
+                              font-size: 14.5px; color: var(--dim); }
+.entry-remove .row { margin-top: 8px; }
+.entry-remove button { flex: 1; padding: 9px; font: 600 14px var(--sans); border-radius: 18px;
+                       border: 1px solid var(--rule-strong); background: var(--field); color: var(--fg); }
+.entry.removable { user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+.entry.holding { border-bottom-color: var(--fg); }
+
+/* A combo: its entries bracketed by one rule in the margin, as a note would be. */
+.combo-group { border-left: 2px solid var(--rule-strong); padding-left: 14px; margin: 12px 0; }
+.combo-group > h3 { font: italic 400 14px var(--serif); color: var(--dim); margin: 6px 0 0; }
+.combo-group .entry:last-of-type { border-bottom: 0; }
+.combo-remove-group { display: inline-block; margin: 4px 0 6px; padding: 0; cursor: pointer; background: none;
+                      border: 0; font: italic 400 14px var(--serif); color: var(--accent);
+                      text-decoration: underline; text-underline-offset: 3px; }
+
+/* ── Add ── */
+#add-choose { display: flex; flex-direction: column; justify-content: flex-end;
+              min-height: calc(100vh - var(--nav-h) - 74px); padding-bottom: 8px; }
+#add-choose .add { background: transparent; color: var(--fg); border: 0; border-bottom: 1px solid var(--rule);
+                   border-radius: 0; font: 400 20px var(--serif); text-align: left; padding: 16px 2px; margin: 0; }
+.notice { background: var(--surface); border: 1px solid var(--rule); border-radius: 4px;
+          padding: 12px 14px; margin: 12px 0; font: italic 400 16px/1.45 var(--serif); color: var(--fg); }
+.field { display: block; margin: 14px 0; font: 400 15px var(--serif); color: var(--dim); }
+.field input:not([type]), .field input[type="text"], .field select {
+  display: block; width: 100%; margin-top: 4px; padding: 8px 2px;
+  font: 400 18px var(--serif); color: var(--fg); background: transparent;
+  border: 0; border-bottom: 1px solid var(--rule-strong); border-radius: 0; }
+input:focus, select:focus { outline: none; border-bottom-color: var(--accent) !important;
+                            box-shadow: 0 1px 0 var(--accent); }
+.row { display: flex; gap: 8px; align-items: center; margin-top: 6px; }
+.row input:not([type="checkbox"]):not([type="radio"]) { flex: 1; }
+.row select { width: auto; }
+.nf { display: grid; grid-template-columns: 1fr 88px auto; gap: 10px; align-items: center;
+      margin: 4px 0; padding: 4px 0; font-size: 15.5px; border-bottom: 1px solid var(--rule); }
+.nf input { width: 88px; padding: 6px 2px; font: 400 17px var(--serif); color: var(--fg); background: transparent;
+            border: 0; border-bottom: 1px solid var(--rule-strong); text-align: right; }
+.nf .row { margin: 0; font: italic 400 13px var(--serif); color: var(--dim); }
+.grain-choice { border: 1px solid var(--rule-strong); border-radius: 4px; padding: 6px 16px 12px;
+                margin: 14px 0; background: var(--surface); }
+.grain-choice legend { font: 600 13px var(--serif); font-variant: small-caps; letter-spacing: .08em;
+                       text-transform: lowercase; color: var(--dim); padding: 0 6px; }
+.grain-choice .row { font-size: 18px; padding: 6px 0; }
+#manual-submit { position: sticky; bottom: calc(var(--nav-h) + 8px); z-index: 5;
+                 box-shadow: 0 0 0 10px var(--bg); }  /* a plate, so it never sits on a row */
+.result { display: block; width: 100%; text-align: left; background: transparent; color: var(--fg);
+          border: 0; border-bottom: 1px solid var(--rule); border-radius: 0; padding: 12px 0; margin: 0;
+          font: 400 17px var(--serif); cursor: pointer; }
+.result-detail { font: italic 400 14px var(--serif); color: var(--dim); margin-top: 2px; }
+video { width: 100%; border-radius: 4px; background: #000; aspect-ratio: 4/3; }
+
+/* ── Log, Trend, Method ── */
+.summary { border-bottom: 1px solid var(--rule); padding: 12px 0; }
+.mtable { width: 100%; border-collapse: collapse; font-size: 15px; margin: 8px 0; }
+.mtable th, .mtable td { text-align: left; padding: 6px 8px 6px 0; border-bottom: 1px solid var(--rule); }
+.mtable th { color: var(--dim); font-weight: 600; font-variant: small-caps; }
+pre.method { white-space: pre-wrap; font: inherit; color: var(--dim); border-left: 2px solid var(--rule-strong);
+             padding-left: 14px; }
+
+/* ── Nav ── */
+nav { position: fixed; left: 0; right: 0; bottom: 0; z-index: 10; display: flex; height: var(--nav-h);
+      background: var(--bg); border-top: 1px solid var(--rule-strong);
+      padding-bottom: env(safe-area-inset-bottom); }
+nav button { flex: 1; background: none; border: 0; cursor: pointer; color: var(--dim);
+             font: 400 14px/1 var(--serif); }
+nav button[aria-current="page"] { color: var(--fg); font-weight: 700; text-decoration: underline;
+                                  text-decoration-color: var(--accent); text-underline-offset: 5px;
+                                  text-decoration-thickness: 2px; }

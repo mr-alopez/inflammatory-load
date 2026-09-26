@@ -1,0 +1,56 @@
+<!doctype html><html lang="en" data-theme="light"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../direction-c-ledger.css"></head><body>
+<header><h1 id="screen-title">Add</h1></header>
+<main>
+  <section id="add">
+    <div id="add-notice" class="notice">This label doesn't say which flour is used. Everything else is filled in — just choose whole grain or refined.</div>
+    <div id="add-manual">
+      <h2>Manual entry</h2>
+      <fieldset id="m-grain" class="grain-choice">
+        <legend>Grain</legend>
+        <label class="row"><input type="radio" name="m-grain" value="A7">
+          <span>Whole grain</span></label>
+        <label class="row"><input type="radio" name="m-grain" value="P4">
+          <span>Refined</span></label>
+      </fieldset>
+      <label class="field">Name <input id="m-name" autocomplete="off" value="Organic Bread 21 Whole Grains and Seeds"></label>
+      <label class="field">Serving or package mass (g)
+        <input id="m-mass" inputmode="decimal" autocomplete="off" value="45"></label>
+      <label class="field">If a liquid — volume (ml)
+        <input id="m-volume" inputmode="decimal" autocomplete="off" value=""></label>
+      <label class="field">If a liquid — density (g/ml)
+        <input id="m-density" inputmode="decimal" autocomplete="off" value=""></label>
+
+      <h2>Nutrients — per serving</h2>
+      <p class="muted">Every field is supplied or marked absent. Leaving one blank
+        is not the same as saying it is unavailable (§8.5).</p>
+      <div id="m-nutrients"><label class="nf"><span>Added sugar (g)</span><input id="mf-added_sugar_g" inputmode="decimal" autocomplete="off" class="prefilled" value="4"><label class="row"><input type="checkbox" id="mf-added_sugar_g-absent"><span>not stated</span></label></label><label class="nf"><span>Sodium (mg)</span><input id="mf-sodium_mg" inputmode="decimal" autocomplete="off" class="prefilled" value="170"><label class="row"><input type="checkbox" id="mf-sodium_mg-absent"><span>not stated</span></label></label><label class="nf"><span>Saturated fat (g)</span><input id="mf-saturated_fat_g" inputmode="decimal" autocomplete="off" class="prefilled" value="0"><label class="row"><input type="checkbox" id="mf-saturated_fat_g-absent"><span>not stated</span></label></label><label class="nf"><span>Fibre (g)</span><input id="mf-fiber_g" inputmode="decimal" autocomplete="off" class="prefilled" value="4"><label class="row"><input type="checkbox" id="mf-fiber_g-absent"><span>not stated</span></label></label></div>
+      <h2>Calories and macros</h2>
+      <div id="m-macros"><label class="nf"><span>Calories (kcal)</span><input id="mf-energy_kcal" inputmode="decimal" autocomplete="off" class="prefilled" value="109.8"><label class="row"><input type="checkbox" id="mf-energy_kcal-absent"><span>not stated</span></label></label><label class="nf"><span>Protein (g)</span><input id="mf-protein_g" inputmode="decimal" autocomplete="off" class="prefilled" value="6"><label class="row"><input type="checkbox" id="mf-protein_g-absent"><span>not stated</span></label></label><label class="nf"><span>Carbohydrate (g)</span><input id="mf-carbohydrate_g" inputmode="decimal" autocomplete="off" class="prefilled" value="22"><label class="row"><input type="checkbox" id="mf-carbohydrate_g-absent"><span>not stated</span></label></label><label class="nf"><span>Fat (g)</span><input id="mf-fat_g" inputmode="decimal" autocomplete="off" class="prefilled" value="1.5"><label class="row"><input type="checkbox" id="mf-fat_g-absent"><span>not stated</span></label></label></div>
+
+      <h2>Classification</h2>
+      <div id="m-classifications"><label class="row" hidden=""><input type="checkbox" id="mc-P4"><span>Refined grain</span></label><label class="row"><input type="checkbox" id="mc-P5" checked=""><span>Ultra-processed</span></label><label class="row"><input type="checkbox" id="mc-P6"><span>Processed meat</span></label><label class="row"><input type="checkbox" id="mc-P7"><span>Deep-fried</span></label><label class="row"><input type="checkbox" id="mc-A2"><span>Omega-3 fish</span></label><label class="row"><input type="checkbox" id="mc-A3"><span>Non-starchy vegetable</span></label><label class="row"><input type="checkbox" id="mc-A4"><span>Fruit</span></label><label class="row"><input type="checkbox" id="mc-A5"><span>Nuts or seeds</span></label><label class="row"><input type="checkbox" id="mc-A6"><span>Legumes</span></label><label class="row" hidden=""><input type="checkbox" id="mc-A7"><span>Whole grain</span></label><label class="row"><input type="checkbox" id="mc-A8"><span>Olive oil</span></label></div>
+      <label class="field" id="m-p3-wrap">
+        <span class="row"><input type="checkbox" id="m-p3" disabled="">
+        <span>Alcohol — enter a volume above to enable</span></span>
+      </label>
+
+      <p class="muted" id="manual-error"></p>
+      <button class="add" id="manual-submit">Log this entry</button>
+      <label class="field"><span class="row"><input type="checkbox" id="m-save">
+        <span>Also save this product for next time (stays on this device)</span></span></label>
+      <button class="add secondary" data-back="">Back</button>
+    </div>
+  </section>
+</main>
+<nav id="nav">
+  <button data-screen="today">Today</button>
+  <button data-screen="log">Log</button>
+  <button data-screen="add" aria-current="page">Add</button>
+  <button data-screen="trend">Trend</button>
+  <button data-screen="method">Method</button>
+  <button data-screen="settings">Settings</button>
+</nav>
+
+</body></html>
