@@ -172,6 +172,52 @@ check('§6.6: identifiers are excluded from the scan, and there are some to excl
   identifierValues.size > 10 && renderedLiterals.length < literals.length,
   `${identifierValues.size} identifiers, ${literals.length} literals → ${renderedLiterals.length} rendered`);
 
+/**
+ * §6.6 over the DISCLOSURE strings — refusal copy, §9 text, §13 notes.
+ *
+ * v2.0: these had NEVER been scanned. They are the most user-visible prose in
+ * the app and §13.5 says refusal copy is "literal in the sense of §6", yet the
+ * verdict check only ever read the shell's own literals. The first scan found
+ * three hits, and two of them are spec text written this round and last:
+ *
+ *   REFUSAL_COPY.GRAIN_MAJORITY_UNKNOWN  "…just choose whole grain or refined."  (§13.5, v2.0)
+ *   USDA_KEY_NOTE                        "…returns branded products instead."    (§13.1, v1.9)
+ *   BULK_DENSITY_RULE                    "…it asks for grams instead of guessing." (mine, v1.8)
+ *
+ * None is an imperative to eat, which is what §6.6 prohibits. `choose` and
+ * `instead` are in the list to catch swap imperatives — "try X instead",
+ * "choose Y" — and as bare words they cannot tell those from a form question.
+ *
+ * REPORTED, NOT RESOLVED. Each is an explicit, named exception with its
+ * reason, keyed to the exact string: the list is not weakened for anything
+ * else, and a NEW hit anywhere fails. Whether the list should hold phrases
+ * rather than words is a §6.6 question.
+ */
+const DISC_ALL = await import('../src/disclosures.js');
+const disclosureStrings = [];
+for (const [k, v] of Object.entries(DISC_ALL)) {
+  if (typeof v === 'string') disclosureStrings.push([k, v]);
+  else if (v && typeof v === 'object') {
+    for (const [k2, v2] of Object.entries(v)) if (typeof v2 === 'string') disclosureStrings.push([`${k}.${k2}`, v2]);
+  }
+}
+const PENDING_RULING = {
+  'REFUSAL_COPY.GRAIN_MAJORITY_UNKNOWN': 'choose — asks the user to answer a form question, not to eat anything',
+  USDA_KEY_NOTE: 'instead — describes what search returns, not what to eat',
+  BULK_DENSITY_RULE: 'instead — describes what the form does, not what to eat',
+};
+const disclosureHits = disclosureStrings.filter(([, v]) => isVerdict(v));
+const unexpected = disclosureHits.filter(([k]) => !(k in PENDING_RULING));
+check('[disclosures.js, every string] §6.6: no verdict word in rendered copy beyond the three pending a ruling',
+  disclosureStrings.length > 15 && unexpected.length === 0,
+  unexpected.length ? `NEW: ${unexpected.map(([k]) => k).join(', ')}`
+    : `${disclosureStrings.length} strings scanned; PENDING RULING: ${Object.keys(PENDING_RULING).join(', ')}`);
+// The exceptions must still be exceptions — if the copy changes and the word
+// goes away, the entry is stale and must be removed, not left to excuse the next one.
+const staleExceptions = Object.keys(PENDING_RULING).filter((k) => !disclosureHits.some(([h]) => h === k));
+check('§6.6: every pending-ruling exception still matches its string — none is stale',
+  staleExceptions.length === 0, staleExceptions.join(', ') || '3 of 3 still hit');
+
 const missed66 = SEC_6_6_NAMED.filter((w) => !isVerdict(`a ${w} thing`));
 check('§6.6: every verdict word the spec names is caught',
   missed66.length === 0, missed66.length ? `not caught: ${missed66.join(', ')}` : '8 named words');
@@ -622,6 +668,70 @@ check('[script: index.html] §8.1: search rendering uses orderSearchResults and 
   /orderSearchResults\(/.test(code.html) && /searchResultLabel\(/.test(code.html));
 check('[markup: index.html] §8.1: the search screen says a scan is more reliable',
   /search-scan-hint/.test(html) && /scanning the barcode/.test(htmlText));
+
+/* ---------- v2.0: §8.5 J4/J5 at the surface, one place for a refusal ---------- */
+
+/**
+ * The shell's manual reader. Until v2.0 it was `Number($(`mf-…`).value)` with
+ * non-finite mapped to ABSENT — and `Number('')` is 0, so every blank field was
+ * stored as 0. The logic now lives in readFormValue (src/manual.js, tested); the
+ * shell must call it and must not rebuild the old shape.
+ */
+const readManualBody = (code.html.match(/function readManual\(\)\s*\{[\s\S]*?\n\}/) ?? [''])[0];
+const readsNumberDirectly = (src) => /Number\(\s*\$\(\s*`mf-/.test(src);
+check('[script: index.html readManual] §8.5: the manual reader goes through readFormValue',
+  readManualBody.length > 200 && /readFormValue\(/.test(readManualBody) && !readsNumberDirectly(readManualBody),
+  `${readManualBody.length} chars`);
+discriminates('§8.5 blank-is-zero reader', readsNumberDirectly, {
+  rejects: ['const v = Number($(`mf-${key}`).value);', 'Number( $( `mf-${k}` ).value )'],
+  accepts: ['readFormValue($(`mf-${key}`).value, absent, label)', "Number($('m-abv').value)"],
+});
+
+/**
+ * One place for a refusal reason (v2.0). `#add-notice` carries it for every
+ * step; `#manual-why` did the same job for one step and read as a second message.
+ */
+const refusalHosts = (src) => [...src.matchAll(/id="(add-notice|manual-why)"/g)].map((m) => m[1]);
+check('[markup: index.html] one element carries a refusal reason',
+  JSON.stringify(refusalHosts(html)) === '["add-notice"]', refusalHosts(html).join(', '));
+discriminates('one refusal host', (src) => refusalHosts(src).length !== 1, {
+  rejects: ['<div id="add-notice"></div><p id="manual-why"></p>', '<p>nothing</p>'],
+  accepts: ['<div id="add-notice" class="notice" hidden></div>'],
+});
+check('[script: index.html toManual] the reason is routed to the step notice',
+  /function toManual[\s\S]{0,2400}step\('add-manual',\s*reason\)/.test(code.html));
+
+/**
+ * §8.6: the shell runs the migration chain on open. Until v2.0 it did not, so
+ * every hop after V1→V2 existed only in the test suite (§2.5 surface coverage:
+ * the tests called migrateStore; the app never did).
+ */
+const openStoreBody = (code.html.match(/async function openStore\(\)\s*\{[\s\S]*?\n\}/) ?? [''])[0];
+const runsMigration = (src) => /await\s+migrateStore\(/.test(src);
+check('[script: index.html openStore] §8.6: the migration chain runs when the store opens',
+  openStoreBody.length > 100 && runsMigration(openStoreBody), `${openStoreBody.length} chars`);
+discriminates('§8.6 migration on open', (src) => !runsMigration(src), {
+  rejects: ['return new EntryStore(await openDatabase(), { today });', 'migrateStore; // TODO'],
+  accepts: ['const b = await openDatabase(); await migrateStore(b); return new EntryStore(b);'],
+});
+
+/**
+ * §8.6: every module the shell reaches is precached, so a first visit made
+ * offline works. v1.8 found six files missing from this list by reading it; v2.0
+ * nearly added a seventh (prefill.js). The list is now checked against the real
+ * import graph instead of against memory.
+ */
+const shellList = [...(sw.match(/const SHELL = \[([\s\S]*?)\];/)?.[1] ?? '').matchAll(/'\.\/([^']+)'/g)]
+  .map((m) => m[1]);
+const shellReach = [...reachable('index.html')].filter((p) => /^(src|data)\//.test(p));
+const unprecached = (reach, list) => reach.filter((p) => !list.includes(p));
+check('[sw.js SHELL vs index.html import graph] §8.6: every reachable module and data file is precached',
+  shellReach.length > 15 && unprecached(shellReach, shellList).length === 0,
+  unprecached(shellReach, shellList).join(', ') || `${shellReach.length} reachable, all precached`);
+discriminates('§8.6 precache coverage', (list) => unprecached(['src/a.js', 'data/b.json'], list).length > 0, {
+  rejects: [['src/a.js'], [], ['data/b.json']],
+  accepts: [['src/a.js', 'data/b.json'], ['src/a.js', 'data/b.json', 'src/extra.js']],
+});
 
 /* ---------- run ---------- */
 

@@ -5,8 +5,8 @@
   "type": "module",
   "description": "Scoring core, storage, sources, macros and display for Dietary Inflammatory Load spec v0.9, §11 steps 1-5.",
   "scripts": {
-    "test": "node test/run.js && node test/storage.js && node test/sources.js && node test/macros.js && node test/display.js && node test/shell.js && node test/trend.js && node test/swap.js && node test/units.js && node test/combos.js",
-    "audit": "node tools/audit.mjs spec/inflammatory-load-spec-v1.9.md",
+    "test": "node test/run.js && node test/storage.js && node test/sources.js && node test/macros.js && node test/display.js && node test/shell.js && node test/trend.js && node test/swap.js && node test/units.js && node test/combos.js && node test/prefill.js",
+    "audit": "node tools/audit.mjs spec/inflammatory-load-spec-v2.0.md",
     "test:scoring": "node test/run.js",
     "test:storage": "node test/storage.js",
     "test:sources": "node test/sources.js",

@@ -4,7 +4,7 @@
  * Field definitions and immutability classes. Data only, no logic.
  */
 
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 
 export const STORES = {
   ENTRIES: 'entries',
@@ -80,11 +80,21 @@ export const ENTRY_FIELDS = {
   combo_id:                 { immutable: true, nullable: true },
   combo_name:               { immutable: true, nullable: true },
 
+  // SCHEMA-5 (§8.5). Present only on a manual entry prefilled from a refused
+  // record: that record's source and product id, and the fields the user
+  // changed from their prefilled values. Absent otherwise — absence reads as
+  // "not prefilled" and needs no backfill.
+  prefilled_from:           { immutable: true, nullable: true },
+  prefill_changed:          { immutable: true, nullable: true },
+
   schema_version:           { immutable: true, required: true },
 };
 
 /** §8.5b. A combo adds these; an entry logged any other way carries neither. */
 export const SCHEMA_4_ADDED_FIELDS = ['combo_id', 'combo_name'];
+
+/** §8.5 (v2.0). Present only on a prefilled manual entry. */
+export const SCHEMA_5_ADDED_FIELDS = ['prefilled_from', 'prefill_changed'];
 
 /**
  * Fields a SCHEMA-1 → SCHEMA-2 migration adds (§8.6). Existing entries take

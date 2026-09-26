@@ -363,6 +363,17 @@ export function migrateEntryV3toV4(v3Entry) {
   return deepFreeze(migrated);
 }
 
+/**
+ * SCHEMA-4 → SCHEMA-5 (§8.5, v2.0). Adds no key: `prefilled_from` and
+ * `prefill_changed` are present only on a prefilled manual entry, and their
+ * absence is what says an entry was not. Stamps the literal 5 (§8.6).
+ */
+export function migrateEntryV4toV5(v4Entry) {
+  const migrated = deepClone(v4Entry);
+  migrated.schema_version = 5;
+  return deepFreeze(migrated);
+}
+
 export async function migrateStore(backend) {
   const from = (await backend.get(STORES.META, META_KEYS.SCHEMA_VERSION)) ?? 1;
   if (from >= SCHEMA_VERSION) return { migrated: 0, from, to: SCHEMA_VERSION };
@@ -373,6 +384,7 @@ export async function migrateStore(backend) {
     if ((m.schema_version ?? 1) < 2) m = migrateEntryV1toV2(m);
     if ((m.schema_version ?? 2) < 3) m = migrateEntryV2toV3(m);
     if ((m.schema_version ?? 3) < 4) m = migrateEntryV3toV4(m);
+    if ((m.schema_version ?? 4) < 5) m = migrateEntryV4toV5(m);
     await backend.put(STORES.ENTRIES, e.entry_id, m);
   }
   await backend.put(STORES.META, META_KEYS.SCHEMA_VERSION, SCHEMA_VERSION);

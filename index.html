@@ -38,6 +38,10 @@
   /* §6.1b: the quantity as entered, beneath the entry line and above drivers. */
   .quantity { color: var(--dim); font-size: 13.5px; margin-top: 3px;
               font-variant-numeric: tabular-nums; }
+  /* §8.5 (v2.0): the one question a prefilled grain refusal asks. */
+  .grain-choice { border: 1px solid var(--rule); border-radius: 10px; padding: 8px 14px 12px;
+                  margin: 12px 0; }
+  .grain-choice legend { font-size: 13px; color: var(--dim); padding: 0 4px; }
   .muted { color: var(--dim); }
   .empty { color: var(--dim); padding: 28px 0; }
   section[hidden] { display: none; }
@@ -229,7 +233,15 @@
     <!-- step: manual entry (§8.5) -->
     <div id="add-manual" hidden>
       <h2>Manual entry</h2>
-      <p class="muted" id="manual-why"></p>
+      <!-- §8.5 (v2.0): asked only when the grain majority is what the refusal
+           is about. Required — the one thing the record could not determine. -->
+      <fieldset id="m-grain" class="grain-choice" hidden>
+        <legend>Grain</legend>
+        <label class="row"><input type="radio" name="m-grain" value="A7">
+          <span>Whole grain</span></label>
+        <label class="row"><input type="radio" name="m-grain" value="P4">
+          <span>Refined</span></label>
+      </fieldset>
       <label class="field">Name <input id="m-name" autocomplete="off"></label>
       <label class="field">Serving or package mass (g)
         <input id="m-mass" inputmode="decimal" autocomplete="off"></label>
@@ -327,7 +339,7 @@
 </nav>
 
 <script type="module">
-import { EntryStore, ComboStore, buildCombo, logCombo } from './src/store.js';
+import { EntryStore, ComboStore, buildCombo, logCombo, migrateStore } from './src/store.js';
 import { openDatabase } from './src/backends/indexeddb.js';
 import { MemoryBackend } from './src/backends/memory.js';
 import {
@@ -342,7 +354,8 @@ import { dayMacroLinePolicy } from './src/store.js';
 import { scoreEntry, resolveVolumeDensity } from './src/scoring.js';
 import { resolveFromOFF, resolveFromUSDA, parseAmount,
   orderSearchResults, searchResultLabel } from './src/sources.js';
-import { createManualRecord, saveProduct, recordFromSaved, ABSENT } from './src/manual.js';
+import { createManualRecord, saveProduct, recordFromSaved, ABSENT,
+  readFormValue, findSavedForProduct } from './src/manual.js';
 import { buildEntry } from './src/entry.js';
 import { lookupBarcode, searchOFF, searchUSDA, lookupUSDA, LOOKUP } from './src/client.js';
 import * as DISC from './src/disclosures.js';
@@ -362,7 +375,18 @@ const text = (el, s) => { el.textContent = s ?? ''; };
 
 async function openStore() {
   try {
-    return new EntryStore(await openDatabase(), { today: localDate() });
+    const backend = await openDatabase();
+    /**
+     * §8.6: run the migration chain on open.
+     *
+     * Until v2.0 the shell never called this. IndexedDB's onupgradeneeded ran
+     * the V1→V2 hop and created stores, and nothing ran V2→V3, V3→V4 or V4→V5
+     * — so the chain SUITE E guards had never executed on a real device. It
+     * cost nothing yet, because every hop after V1→V2 only restamps a version;
+     * the first hop that transforms data would have silently never run.
+     */
+    await migrateStore(backend);
+    return new EntryStore(backend, { today: localDate() });
   } catch {
     // §8.6: never degrade to an unscored state. A browser without IndexedDB
     // still opens; nothing persists, and that is visible rather than silent.
@@ -897,16 +921,46 @@ function step(id, notice) {
  * The reason is carried through so the user is told what happened, and the name
  * and barcode are pre-filled so nothing already known is asked for twice.
  */
-function toManual(reason, prefill = {}) {
+/**
+ * @param reason      refusal copy (§13.5), or an instruction
+ * @param prefill     what the flow already knows: a name, a barcode
+ * @param fromRecord  §8.5 (v2.0): the refused record's declared values, or null
+ */
+function toManual(reason, prefill = {}, fromRecord = null) {
   flow.prefill = prefill;
-  $('m-name').value = prefill.name ?? '';
-  $('m-mass').value = '';
-  $('m-volume').value = '';
-  $('m-density').value = '';
-  text($('manual-why'), reason ?? '');
+  flow.fromRecord = fromRecord;
+  buildManualForm();     // fresh inputs: nothing carries over from a previous form
+
+  const set = (id, v) => { $(id).value = v === undefined || v === null ? '' : String(v); };
+  set('m-name', fromRecord?.name || prefill.name);
+  set('m-mass', fromRecord?.serving_mass_g);
+  set('m-volume', fromRecord?.volume_ml);
+  set('m-density', '');
+
+  // Declared fields arrive filled; undeclared ones arrive BLANK, never 0 (J4/J5).
+  for (const [field, value] of Object.entries(fromRecord?.values ?? {})) {
+    const input = $(`mf-${field}`);
+    input.value = String(value);
+    input.classList.add('prefilled');
+  }
+  for (const id of Object.keys(fromRecord?.classifications ?? {})) {
+    const cb = $(`mc-${id}`);
+    if (cb) cb.checked = true;
+  }
+
+  // §8.5: when the refusal is the grain majority, the choice is THE question —
+  // asked on its own, required, and removed from the general list so it cannot
+  // be answered twice or skipped in passing.
+  const needsGrain = !!fromRecord?.needs?.includes('grain');
+  $('m-grain').hidden = !needsGrain;
+  for (const r of document.querySelectorAll('input[name="m-grain"]')) r.checked = false;
+  for (const id of ['P4', 'A7']) $(`mc-${id}`).closest('label').hidden = needsGrain;
+
   text($('manual-error'), '');
   syncP3();
-  step('add-manual');
+  // One place for a refusal reason: the step notice. `#manual-why` is gone
+  // (v2.0 — the two elements did the same job and read as two messages).
+  step('add-manual', reason);
 }
 
 // §13.5: refusal copy is written in the spec module, never transcribed here.
@@ -947,6 +1001,16 @@ async function startCamera() {
 /* ---- resolution (§8.1, §8.2, §3.3c) ---- */
 
 async function resolveBarcode(code) {
+  // §8.5a (v2.0): rescanning a product the user already saved from a prefilled
+  // refusal offers that saved product first — the flour question is not asked
+  // twice for the same loaf.
+  const saved = findSavedForProduct(await store.backend.getAll('saved_products'), `off:${code}`);
+  if (saved) {
+    step('add-saved');
+    await renderSaved(saved.saved_id);
+    return;
+  }
+
   step('add-scan', 'Looking it up…');
   const r = await lookupBarcode(code);
   if (r.status !== LOOKUP.OK) {
@@ -967,7 +1031,9 @@ async function useRaw(raw, source, prefill) {
   }
   const res = source === 'OFF' ? resolveFromOFF(raw) : resolveFromUSDA(raw);
   if (!res.resolved) {
-    toManual(REFUSAL_COPY[res.reason] ?? REFUSAL_COPY.ERROR, prefill);
+    // §8.5 (v2.0): a refusal for anything but the basis carries the record's
+    // declared values. The user supplies only what the record could not.
+    toManual(REFUSAL_COPY[res.reason] ?? REFUSAL_COPY.ERROR, prefill, res.prefill);
     return;
   }
   flow.record = res.record;
@@ -1125,31 +1191,56 @@ function syncP3() {
   text(label, ok ? 'Alcohol' : 'Alcohol — enter a volume above to enable');
 }
 
+/**
+ * §8.5 J4/J5, at the surface. A BLANK field is omitted, so createManualRecord
+ * refuses it with FIELD_NOT_STATED. It is never read as 0.
+ *
+ * The reader this replaces mapped `Number(value)` to ABSENT when non-finite.
+ * `Number('')` is 0, so every blank field was stored as 0 from step 7 to v2.0,
+ * and `Number('1,5')` is NaN, so a mistyped value became "not stated". The
+ * logic now lives in src/manual.js as readFormValue, where it is tested.
+ */
 function readManual() {
-  const read = (fields) => Object.fromEntries(fields.map(([key]) => {
-    if ($(`mf-${key}-absent`).checked) return [key, ABSENT];
-    const v = Number($(`mf-${key}`).value);
-    return [key, Number.isFinite(v) ? v : ABSENT];
-  }));
+  const read = (fields) => {
+    const out = {};
+    for (const [key, label] of fields) {
+      const v = readFormValue($(`mf-${key}`).value, $(`mf-${key}-absent`).checked, label);
+      if (v !== undefined) out[key] = v;          // blank: omitted → FIELD_NOT_STATED
+    }
+    return out;
+  };
   const classifications = {};
-  for (const [id] of CLASSIFICATION_FIELDS) if ($(`mc-${id}`).checked) classifications[id] = true;
+  for (const [id] of CLASSIFICATION_FIELDS) {
+    const cb = $(`mc-${id}`);
+    if (cb.checked && !cb.closest('label').hidden) classifications[id] = true;
+  }
+  // §8.5: the grain question, when asked, supplies P4 or A7 — and nothing else does.
+  const grainAsked = !$('m-grain').hidden;
+  const grain = document.querySelector('input[name="m-grain"]:checked')?.value;
+  if (grainAsked && grain) classifications[grain] = true;
   if ($('m-p3').checked) classifications.P3 = { abv_percent: Number($('m-abv').value) };
 
-  const num = (id) => { const v = Number($(id).value); return Number.isFinite(v) && v > 0 ? v : undefined; };
+  const num = (id, label) => {
+    const v = readFormValue($(id).value, false, label);
+    return v === undefined || v === ABSENT || !(v > 0) ? undefined : v;
+  };
   return {
     name: $('m-name').value.trim() || 'Unnamed item',
     nutrients: read(NUTRIENT_FIELDS),
     macros: read(MACRO_FIELDS_UI),
     classifications,
-    serving_mass_g: num('m-mass'),
-    volume_ml: num('m-volume'),
-    density_g_per_ml: num('m-density'),
+    serving_mass_g: num('m-mass', 'Serving mass'),
+    volume_ml: num('m-volume', 'Volume'),
+    density_g_per_ml: num('m-density', 'Density'),
+    grain_required: grainAsked,
+    ...(flow.fromRecord ? { prefill: flow.fromRecord } : {}),
   };
 }
 
 /* ---- saved products (§8.5a) ---- */
 
-async function renderSaved() {
+/** @param firstId  a saved product to list first — the rescan case (§8.5a). */
+async function renderSaved(firstId = null) {
   const host = $('saved-list');
   host.replaceChildren();
   const saved = await store.backend.getAll('saved_products');
@@ -1160,7 +1251,12 @@ async function renderSaved() {
     host.append(p);
     return;
   }
-  for (const s of saved) {
+  // "Offers the saved product first" — first, not only. The others stay listed,
+  // and Back returns to the paths, so a stale save never traps the user.
+  const ordered = firstId
+    ? [...saved.filter((s) => s.saved_id === firstId), ...saved.filter((s) => s.saved_id !== firstId)]
+    : saved;
+  for (const s of ordered) {
     const b = document.createElement('button');
     b.className = 'result';
     text(b, s.name);

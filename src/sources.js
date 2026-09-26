@@ -10,6 +10,7 @@
 
 import { DENSITY_MAP, VOLUME_UNITS } from './coefficients.js';
 import { categoryFromTags, categoryFromUSDA, CATMAP_VERSION } from './category-map.js';
+import { prefillFromRefusal } from './prefill.js';
 
 export const SOURCE_REJECT = {
   DATASET_NOT_ELIGIBLE: 'DATASET_NOT_ELIGIBLE',       // §8.2 USDA Branded
@@ -22,7 +23,13 @@ export const SOURCE_REJECT = {
 /** §8.2 — Foundation Foods and SR Legacy only. Branded is not eligible. */
 export const USDA_ELIGIBLE_DATASETS = ['Foundation', 'SR Legacy'];
 
-const refuse = (reason, detail) => ({ resolved: false, reason, detail, offer: 'MANUAL' });
+/**
+ * A refusal offers manual entry (§13.2). Since v2.0 it may also carry the
+ * record's declared values for the form (§8.5) — null when prefill does not
+ * apply, which includes every basis refusal.
+ */
+const refuse = (reason, detail, prefill = null) =>
+  ({ resolved: false, reason, detail, offer: 'MANUAL', prefill });
 
 /* ------------------------------------------------------------------ *
  * Declared-field parsing
@@ -118,26 +125,21 @@ export function resolveFromOFF(raw) {
 
   const servingSize = parseQuantity(raw.serving_size);
   const packageQty = parseQuantity(raw.quantity);
-
-  // §3.1 — grain majority must resolve before anything else is worth doing.
   const grainMajority = resolveGrainMajority(raw.ingredients);
-  if (grainMajority === 'unknown') {
-    return refuse(
-      SOURCE_REJECT.GRAIN_MAJORITY_UNKNOWN,
-      'both whole and refined grain listed with no declared mass ordering (§3.1)'
-    );
-  }
-
   const isLiquid = !!(packageQty && VOLUME_UNITS.includes(packageQty.unit));
   const densityClass = raw.density_class ?? null;
-  if (isLiquid && (densityClass === null || DENSITY_MAP[densityClass] === undefined)) {
-    return refuse(
-      SOURCE_REJECT.DENSITY_UNRESOLVED,
-      'liquid product with no resolvable density class; never assumed 1.00 (§3.3a step 3)'
-    );
-  }
 
-  const juice = applyJuiceRule(raw, reportedFromOFF(raw), classificationsFromOFF(raw, grainMajority));
+  /**
+   * v2.0 (§8.5): the record is built IN FULL before any refusal, because a
+   * refusal for a reason other than the basis now carries the record's declared
+   * values into the manual form. Refusing before the record existed threw that
+   * away and made the user retype a label the app already had.
+   *
+   * An unresolved grain majority contributes neither P4 nor A7 here — that
+   * choice is what the refusal asks the user for.
+   */
+  const juice = applyJuiceRule(raw, reportedFromOFF(raw),
+    classificationsFromOFF(raw, grainMajority === 'unknown' ? null : grainMajority));
 
   const record = {
     name: raw.product_name,
@@ -164,12 +166,39 @@ export function resolveFromOFF(raw) {
     category_map_version: CATMAP_VERSION,
   };
 
-  // §3.3c is authoritative on the basis; refuse here rather than let scoring
-  // discover it, so that "not scored and not stored" is a source-layer outcome.
+  /**
+   * Refusal order, v2.0: BASIS FIRST.
+   *
+   * Previously grain majority was checked first, so a record failing both
+   * reported GRAIN_MAJORITY_UNKNOWN. That now matters: the grain copy (§13.5)
+   * says "Everything else is filled in", and §8.5 forbids prefill when the
+   * basis refused — so the same record would show that sentence over an empty
+   * form (AV-32). The basis is the more fundamental failure, and the one the
+   * no-prefill rule keys on, so it is reported first.
+   */
   if (basisWouldNotResolve(record)) {
     return refuse(
       SOURCE_REJECT.BASIS_UNRESOLVED,
       'nutrition_data_per absent or unparseable serving_size; per_100g is never a fallback (§3.3c rule 4)'
+    );
+  }
+
+  // §3.1 — the basis resolved, so a grain refusal can carry the label forward.
+  if (grainMajority === 'unknown') {
+    return refuse(
+      SOURCE_REJECT.GRAIN_MAJORITY_UNKNOWN,
+      'both whole and refined grain listed with no declared mass ordering (§3.1)',
+      prefillFromRefusal({ record, reason: SOURCE_REJECT.GRAIN_MAJORITY_UNKNOWN, raw, isLiquid })
+    );
+  }
+
+  // §3.3a step 3 — a liquid with no density class. The volume is declared;
+  // the density is what the user supplies.
+  if (isLiquid && (densityClass === null || DENSITY_MAP[densityClass] === undefined)) {
+    return refuse(
+      SOURCE_REJECT.DENSITY_UNRESOLVED,
+      'liquid product with no resolvable density class; never assumed 1.00 (§3.3a step 3)',
+      prefillFromRefusal({ record, reason: SOURCE_REJECT.DENSITY_UNRESOLVED, raw, isLiquid })
     );
   }
   return { resolved: true, record };
@@ -237,15 +266,9 @@ function reportedFromOFF(raw) {
 export function resolveFromUSDA(raw) {
   if (!raw) return refuse(SOURCE_REJECT.NOT_FOUND, 'no USDA record');
 
-  if (!USDA_ELIGIBLE_DATASETS.includes(raw.dataType)) {
-    return refuse(
-      SOURCE_REJECT.DATASET_NOT_ELIGIBLE,
-      `dataType "${raw.dataType}" is not eligible; Branded carries no NOVA field so P5 would be ` +
-      'genuinely missing (§8.2)'
-    );
-  }
-
-  return {
+  // Built in full before the dataset check, so an ineligible dataset can carry
+  // its declared values into the manual form (§8.5, v2.0).
+  const result = {
     resolved: true,
     record: {
       name: raw.description,
@@ -275,6 +298,23 @@ export function resolveFromUSDA(raw) {
       },
     },
   };
+
+  /**
+   * §8.2. A USDA basis is always per 100 g, so it always resolves, and an
+   * ineligible dataset may prefill. NOTE: search never returns Branded — it is
+   * filtered to Foundation and SR Legacy at the request (§8.2) — so from the
+   * shell this path is unreachable today. It is implemented because §8.5 names
+   * it, and tested because unreachable code that is wrong is still wrong.
+   */
+  if (!USDA_ELIGIBLE_DATASETS.includes(raw.dataType)) {
+    return refuse(
+      SOURCE_REJECT.DATASET_NOT_ELIGIBLE,
+      `dataType "${raw.dataType}" is not eligible; Branded carries no NOVA field so P5 would be ` +
+      'genuinely missing (§8.2)',
+      prefillFromRefusal({ record: result.record, reason: SOURCE_REJECT.DATASET_NOT_ELIGIBLE })
+    );
+  }
+  return result;
 }
 
 /* ------------------------------------------------------------------ *

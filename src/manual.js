@@ -8,6 +8,7 @@
 
 import { DENSITY_MAP } from './coefficients.js';
 import { STORES } from './schema.js';
+import { changedFromPrefill } from './prefill.js';
 
 /** Explicit "the user asserts this value is unavailable" (§8.5). */
 export const ABSENT = Symbol('ABSENT');
@@ -15,10 +16,46 @@ export const ABSENT = Symbol('ABSENT');
 export const MANUAL_REJECT = {
   P3_REQUIRES_VOLUME: 'P3_REQUIRES_VOLUME',      // §8.5 exception for P3 (K2)
   FIELD_NOT_STATED: 'FIELD_NOT_STATED',          // supplied nor marked absent
+  NOT_A_NUMBER: 'NOT_A_NUMBER',                  // typed, but not a number
   MASS_REQUIRED: 'MASS_REQUIRED',                // §8.5 serving or package mass
   DENSITY_REQUIRED: 'DENSITY_REQUIRED',          // liquid with volume but no density
+  GRAIN_NOT_CHOSEN: 'GRAIN_NOT_CHOSEN',          // §8.5 prefill: the one thing asked
   NOT_LOCAL: 'NOT_LOCAL',                        // §8.5a local-only violation
 };
+
+/**
+ * §8.5 J4/J5: read one form field.
+ *
+ *   absent box ticked  → ABSENT     a statement: the product lacks the value
+ *   blank              → undefined  an unfinished form: FIELD_NOT_STATED
+ *   a number           → the number, including an explicit 0
+ *   anything else      → refused    NOT_A_NUMBER, naming the field
+ *
+ * REPLACES the shell's previous reader, which was `Number(value)` with
+ * non-finite results mapped to ABSENT. `Number('')` is 0, which is finite, so
+ * EVERY BLANK FIELD WAS STORED AS 0 from §11 step 7 until v2.0 — the exact
+ * outcome §8.5 forbids ("It is never read as 0"). And `Number('1,5')` is NaN,
+ * so a mistyped value silently became "not stated". createManualRecord's own
+ * FIELD_NOT_STATED check was correct and tested; it could never fire, because
+ * the shell never omitted a key. The test was aimed at the module, not at the
+ * surface that fed it (§2.5).
+ */
+export function readFormValue(rawText, absentTicked = false, label = 'field') {
+  if (absentTicked) return ABSENT;
+  const t = String(rawText ?? '').trim();
+  if (t === '') return undefined;
+  if (!/^\d*\.?\d+$/.test(t)) {
+    throw new ManualRejection(MANUAL_REJECT.NOT_A_NUMBER,
+      `${label}: "${t}" is not a number. Use digits and a decimal point, e.g. 1.5`);
+  }
+  return Number(t);
+}
+
+/** §8.5a: a saved product built from this record, if one exists (rescan). */
+export function findSavedForProduct(savedProducts = [], productId) {
+  if (!productId) return null;
+  return savedProducts.find((s) => s.record?.prefilled_from?.product_id === productId) ?? null;
+}
 
 export class ManualRejection extends Error {
   constructor(code, detail) { super(`${code}: ${detail}`); this.code = code; this.detail = detail; }
@@ -64,6 +101,15 @@ function readStated(bag, fields, label) {
 export function createManualRecord(input) {
   const classifications = { ...(input.classifications ?? {}) };
   const p3 = classifications.P3 ?? null;
+
+  // §8.5 prefill: when the refusal was the grain majority, the choice is the
+  // one thing the form asks for. Accepting the form without it would create an
+  // entry with neither P4 nor A7 — silently discarding the fact the refusal
+  // existed to obtain (AV-31).
+  if (input.grain_required && !classifications.P4 && !classifications.A7) {
+    throw new ManualRejection(MANUAL_REJECT.GRAIN_NOT_CHOSEN,
+      'choose whole grain or refined — the label does not say which (§8.5, §3.1)');
+  }
 
   const reported = {
     ...readStated(input.nutrients ?? {}, NUTRIENTS, 'nutrients'),
@@ -112,7 +158,7 @@ export function createManualRecord(input) {
     }
   }
 
-  return {
+  const record = {
     name: input.name,
     product_id: input.product_id ?? `manual:${input.name}`,
     source: 'MANUAL',
@@ -131,7 +177,26 @@ export function createManualRecord(input) {
     // §7.2a — a manual product has no source taxonomy to key on.
     occasion_category: input.occasion_category ?? 'UNCATEGORIZED',
     category_map_version: input.occasion_category ? 'USER_OVERRIDE' : 'CATMAP-1',
+    // §3.5 carried from a prefilled juice, so the driver still reads "sugar".
+    ...(input.prefill?.sugar_field_used ? { sugar_field_used: input.prefill.sugar_field_used } : {}),
   };
+
+  /**
+   * §8.5 provenance. Still `source: MANUAL` — the user submitted it — but an
+   * entry built from a record is distinguishable, in any audit, from one typed
+   * off a label. Present only when prefilled; absence means "not prefilled".
+   *
+   * The product id stays `manual:…`. §8.5a: a local record never borrows a
+   * shared product id; the shared one is recorded as provenance, not identity.
+   */
+  if (input.prefill) {
+    record.prefilled_from = { ...input.prefill.from };
+    record.prefill_changed = changedFromPrefill(
+      { reported, serving_mass_g: input.serving_mass_g, volume_ml: input.volume_ml, classifications },
+      input.prefill
+    );
+  }
+  return record;
 }
 
 /* ------------------------------------------------------------------ *

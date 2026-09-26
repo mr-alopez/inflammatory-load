@@ -19,7 +19,7 @@
  * notification or badge reporting a load, and the way to guarantee that is to
  * register no such handler at all.
  */
-const CACHE_VERSION = 'v10';
+const CACHE_VERSION = 'v11';
 const CACHE = `inflammatory-load-shell-${CACHE_VERSION}`;
 
 /**
@@ -37,7 +37,7 @@ const SHELL = [
   './src/macros.js', './src/display.js', './src/select.js', './src/sources.js',
   './src/manual.js', './src/entry.js', './src/client.js', './src/swap.js',
   './src/disclosures.js', './src/density-map.js', './src/category-map.js',
-  './src/bulk-density-map.js',
+  './src/bulk-density-map.js', './src/prefill.js',
   './src/backends/indexeddb.js', './src/backends/memory.js',
   './data/density-map.json', './data/category-map.json', './data/bulk-density-map.json',
 ];

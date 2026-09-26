@@ -13,7 +13,7 @@ import { EntryStore, StoreRejection, STORE_ERROR, migrateStore, migrateEntryV1to
   incompleteFields, dayMacroLinePolicy, windowNormalizationStatus } from '../src/store.js';
 import { MemoryBackend } from '../src/backends/memory.js';
 import { ENTRY_FIELDS, MIGRATION_PROTECTED, STORES, META_KEYS, SCHEMA_VERSION,
-  SCHEMA_4_ADDED_FIELDS } from '../src/schema.js';
+  SCHEMA_4_ADDED_FIELDS, SCHEMA_5_ADDED_FIELDS } from '../src/schema.js';
 import { scoreEntry } from '../src/scoring.js';
 import { buildEntry } from '../src/entry.js';
 import { fixtures } from './fixtures.js';
@@ -173,7 +173,7 @@ async function suiteB() {
   // §8.4 field-list coverage. SCHEMA_4_ADDED_FIELDS are present only on an
   // entry written through a combo (§8.5b) — their absence is the signal — so
   // they are excluded here and asserted present in SUITE E instead.
-  const optional = new Set(SCHEMA_4_ADDED_FIELDS);
+  const optional = new Set([...SCHEMA_4_ADDED_FIELDS, ...SCHEMA_5_ADDED_FIELDS]);
   const missing = Object.keys(ENTRY_FIELDS).filter((f) => !optional.has(f) && !(f in today));
   check('B', '§8.4 field list fully populated from scoring output', missing.length === 0,
     missing.length ? `missing: ${missing}` : `${Object.keys(ENTRY_FIELDS).length - optional.size} fields`);

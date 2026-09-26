@@ -86,9 +86,12 @@ export const REFUSAL_COPY = {
   BASIS_UNRESOLVED:
     'This product does not say what its nutrition figures are measured against, so it '
     + 'cannot be scored from the database. You can enter it by hand.',
+  // §13.5 (v2.0): says what is needed rather than what failed. True only
+  // because the resolver checks the basis FIRST — a grain refusal therefore
+  // always has a resolved basis and always arrives prefilled (AV-32).
   GRAIN_MAJORITY_UNKNOWN:
-    'This product lists both whole and refined grain without saying which there is more '
-    + 'of. Guessing would change the score, so it is entered by hand instead.',
+    "This label doesn't say which flour is used. Everything else is filled in — just "
+    + 'choose whole grain or refined.',
   DENSITY_UNRESOLVED:
     'This is a liquid and its density is not known, so millilitres cannot be converted '
     + 'to grams. Enter a mass, or a volume and a density.',

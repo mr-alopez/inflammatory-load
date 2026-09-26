@@ -82,6 +82,12 @@ export function buildEntry(scored, record, meta) {
     // null — otherwise, because absence is what says "not logged through a
     // combo" and a null would assert the field was considered and empty.
     ...(meta.combo_id ? { combo_id: meta.combo_id, combo_name: meta.combo_name } : {}),
+    // §8.5 (v2.0): provenance of a prefilled manual entry. Carried from the
+    // record, so an entry later logged from a SAVED product built this way still
+    // says where its values came from.
+    ...(record.prefilled_from
+      ? { prefilled_from: { ...record.prefilled_from }, prefill_changed: [...(record.prefill_changed ?? [])] }
+      : {}),
     schema_version: SCHEMA_VERSION,
   };
 }
