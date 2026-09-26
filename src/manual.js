@@ -46,7 +46,7 @@ export function readFormValue(rawText, absentTicked = false, label = 'field') {
   if (t === '') return undefined;
   if (!/^\d*\.?\d+$/.test(t)) {
     throw new ManualRejection(MANUAL_REJECT.NOT_A_NUMBER,
-      `${label}: "${t}" is not a number. Use digits and a decimal point, e.g. 1.5`);
+      `${label}: "${t}" is not a number (§8.5 J4/J5)`, { field: label, value: t });
   }
   return Number(t);
 }
@@ -57,8 +57,14 @@ export function findSavedForProduct(savedProducts = [], productId) {
   return savedProducts.find((s) => s.record?.prefilled_from?.product_id === productId) ?? null;
 }
 
+/**
+ * `detail` is for logs and tests; it may cite sections and codes. `info` carries
+ * what the shell needs to say it in plain words (§6.8): the field, the value.
+ */
 export class ManualRejection extends Error {
-  constructor(code, detail) { super(`${code}: ${detail}`); this.code = code; this.detail = detail; }
+  constructor(code, detail, info = {}) {
+    super(`${code}: ${detail}`); this.code = code; this.detail = detail; this.info = info;
+  }
 }
 
 /** Deep freeze — Object.freeze is shallow, and §8.5a needs the whole snapshot. */
@@ -77,7 +83,8 @@ function readStated(bag, fields, label) {
     if (!(f in bag)) {
       throw new ManualRejection(
         MANUAL_REJECT.FIELD_NOT_STATED,
-        `${label}.${f} must be supplied or explicitly marked ABSENT (§8.5)`
+        `${label}.${f} must be supplied or explicitly marked ABSENT (§8.5)`,
+        { field: f }
       );
     }
     out[f] = bag[f] === ABSENT ? null : bag[f];

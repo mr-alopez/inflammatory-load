@@ -381,7 +381,7 @@ export const fixtures = [
       score: -1.85,
     },
     discrimination: [
-      { label: 'rounding toward +inf yields -1.8 (display layer, §11 step 5)', kind: 'display' },
+      { label: 'rounding toward +inf yields −1.8 (display layer, §11 step 5)', kind: 'display' },
     ],
   },
 ];

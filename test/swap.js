@@ -91,7 +91,7 @@ function suiteU() {
   near('U', 'AV-3: A4 gain 1.0 beats A1 gain 0.316', result.drivers.into.change, 1.0);
 
   const lines = swapLine(result, source);
-  eq('U', 'AV-3 §6.5 line 1', lines[0], 'Alternative: Apple, 120 g — -1.6');
+  eq('U', 'AV-3 §6.5 line 1', lines[0], 'Alternative: Apple, 120 g — −1.6');
   eq('U', 'AV-3 §6.5 line 2', lines[1], 'Swaps 27 g added sugar for 1 serving fruit.');
   check('U', "§6.5: no imperative, and the word 'instead' never appears",
     !/\b(instead|try|choose|swap this for|should)\b/i.test(lines.join(' ')));

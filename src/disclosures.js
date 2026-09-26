@@ -131,3 +131,43 @@ it asks for grams instead of guessing.`;
 export const USDA_KEY_NOTE = `Optional, free, and stored on this device only. Without it,
 searching for plain foods like coffee or sugar returns branded products instead. Scanning
 barcodes works either way.`;
+
+/* ------------------------------------------------------------------ *
+ * §6.8 (v2.1) — error messages, in plain words
+ * ------------------------------------------------------------------ */
+
+/**
+ * §6.8: no user-visible string cites a spec section or an internal code.
+ *
+ * Until v2.1 the shell rendered the developer detail of a rejection directly:
+ * "choose whole grain or refined — the label does not say which (§8.5, §3.1)",
+ * "nutrients.fiber_g must be supplied or explicitly marked ABSENT (§8.5)",
+ * "Not removed — PRIOR_DAY_READ_ONLY: entry e-17… is dated …". Those details
+ * stay on the error object, for logs and tests. What the user sees is below,
+ * keyed by code, with {field}, {value} and {name} filled in by the shell.
+ *
+ * These strings are Code's, written to satisfy §6.8's instruction ("state what
+ * happened and what the user can do"); §6 does not define them yet.
+ */
+export const MANUAL_ERROR_COPY = {
+  FIELD_NOT_STATED: '{field}: enter the figure from the label, or tick “not stated” if the label doesn’t give one.',
+  NOT_A_NUMBER: '{field}: “{value}” isn’t a number. Use digits and a decimal point, like 1.5.',
+  MASS_REQUIRED: 'Enter the serving or package mass in grams. For a liquid, a volume and a density will do instead.',
+  DENSITY_REQUIRED: 'Add a density as well, so the amounts can be converted to grams.',
+  P3_REQUIRES_VOLUME: 'Alcohol needs a volume and an ABV.',
+  GRAIN_NOT_CHOSEN: 'Pick whole grain or refined above. The label doesn’t say which.',
+  ERROR: 'This couldn’t be logged. Check the figures above.',
+};
+
+export const REMOVE_ERROR_COPY = {
+  PRIOR_DAY_READ_ONLY: 'Only today’s entries can be removed. Earlier days are final.',
+  NO_SUCH_ENTRY: 'This entry has already been removed.',
+  ERROR: 'This entry couldn’t be removed.',
+};
+
+export const COMBO_ERROR_COPY = {
+  COMBO_COMPONENT_FAILED: 'Nothing was logged. {name} can no longer be scored — edit the combo to replace it.',
+  ENTRY_EXISTS: 'Nothing was logged. Tap the combo again.',
+  MISSING_REQUIRED_FIELD: 'A combo needs a name and at least one item.',
+  ERROR: 'Nothing was logged.',
+};

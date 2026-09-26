@@ -309,7 +309,7 @@ function suiteAD() {
   check('AD', 'AV-30: it does NOT render the converted volume', !/354|ml/.test(line), line);
   const first = entryLine(entry)[0];
   check('AD', "AV-30: §6.1's first line is unchanged — name and score only",
-    /^Coffee, brewed — [+-][0-9]+\.[0-9]$/.test(first), first);
+    /^Coffee, brewed — [+−][0-9]+\.[0-9]$/.test(first), first);   // §6.1: + or U+2212
   check('AD', 'AV-30: the quantity is NOT appended to §6.1',
     !/fl oz/.test(first) && !first.includes(line), first);
 

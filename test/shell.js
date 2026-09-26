@@ -14,7 +14,7 @@
  */
 
 import { readFileSync } from 'node:fs';
-import { isVerdict, SEC_6_6_NAMED, VERDICT_CASES, NON_RENDERED_IDENTIFIERS }
+import { isVerdict, verdictIn, SEC_6_6_NAMED, VERDICT_CASES, NON_RENDERED_IDENTIFIERS }
   from './prohibited.js';
 
 let pass = 0, fail = 0;
@@ -188,10 +188,8 @@ check('§6.6: identifiers are excluded from the scan, and there are some to excl
  * `instead` are in the list to catch swap imperatives — "try X instead",
  * "choose Y" — and as bare words they cannot tell those from a form question.
  *
- * REPORTED, NOT RESOLVED. Each is an explicit, named exception with its
- * reason, keyed to the exact string: the list is not weakened for anything
- * else, and a NEW hit anywhere fails. Whether the list should hold phrases
- * rather than words is a §6.6 question.
+ * v2.0 carried these as named exceptions. v2.1 answered the §6.6 question:
+ * phrases, not bare words, and no exceptions ever.
  */
 const DISC_ALL = await import('../src/disclosures.js');
 const disclosureStrings = [];
@@ -201,22 +199,14 @@ for (const [k, v] of Object.entries(DISC_ALL)) {
     for (const [k2, v2] of Object.entries(v)) if (typeof v2 === 'string') disclosureStrings.push([`${k}.${k2}`, v2]);
   }
 }
-const PENDING_RULING = {
-  'REFUSAL_COPY.GRAIN_MAJORITY_UNKNOWN': 'choose — asks the user to answer a form question, not to eat anything',
-  USDA_KEY_NOTE: 'instead — describes what search returns, not what to eat',
-  BULK_DENSITY_RULE: 'instead — describes what the form does, not what to eat',
-};
+// v2.1 (§6.6): no named exceptions. `choose`, `try` and `instead` are phrases
+// now, so the three strings that tripped the bare-word list pass on their
+// merits, and there is no exception left for a real violation to hide behind.
 const disclosureHits = disclosureStrings.filter(([, v]) => isVerdict(v));
-const unexpected = disclosureHits.filter(([k]) => !(k in PENDING_RULING));
-check('[disclosures.js, every string] §6.6: no verdict word in rendered copy beyond the three pending a ruling',
-  disclosureStrings.length > 15 && unexpected.length === 0,
-  unexpected.length ? `NEW: ${unexpected.map(([k]) => k).join(', ')}`
-    : `${disclosureStrings.length} strings scanned; PENDING RULING: ${Object.keys(PENDING_RULING).join(', ')}`);
-// The exceptions must still be exceptions — if the copy changes and the word
-// goes away, the entry is stale and must be removed, not left to excuse the next one.
-const staleExceptions = Object.keys(PENDING_RULING).filter((k) => !disclosureHits.some(([h]) => h === k));
-check('§6.6: every pending-ruling exception still matches its string — none is stale',
-  staleExceptions.length === 0, staleExceptions.join(', ') || '3 of 3 still hit');
+check('[disclosures.js, every string] §6.6: no verdict word or imperative phrase in any rendered copy — no exceptions',
+  disclosureStrings.length > 15 && disclosureHits.length === 0,
+  disclosureHits.length ? disclosureHits.map(([k, v]) => `${k}: "${verdictIn(v)}"`).join(', ')
+    : `${disclosureStrings.length} strings scanned, 0 exceptions`);
 
 const missed66 = SEC_6_6_NAMED.filter((w) => !isVerdict(`a ${w} thing`));
 check('§6.6: every verdict word the spec names is caught',
@@ -229,9 +219,11 @@ discriminates('§6.6 verdict words', isVerdict, VERDICT_CASES);
 check('§6.6: an element id carrying a verdict word is not judged',
   NON_RENDERED_IDENTIFIERS.every((id) => !visible.includes(id)),
   NON_RENDERED_IDENTIFIERS.filter((id) => visible.includes(id)).join(', ') || 'none reach the scan');
-check('§6.6 discriminates on surface: add-choose IS a verdict by text and IS NOT scanned',
-  isVerdict('add-choose') && !visible.includes('add-choose'),
-  'the list still matches it; the surface excludes it');
+check('§6.6 discriminates on surface: "good-choice" IS a verdict by text and IS NOT scanned',
+  isVerdict('good-choice') && !visible.includes('good-choice'),
+  'the list matches it; the surface excludes it');
+check('§6.6 v2.1: "add-choose" is no verdict at all — choose is no longer a bare word',
+  !isVerdict('add-choose'));
 
 /**
  * The literal scanner's reach, asserted rather than assumed. It reads
@@ -731,6 +723,32 @@ check('[sw.js SHELL vs index.html import graph] §8.6: every reachable module an
 discriminates('§8.6 precache coverage', (list) => unprecached(['src/a.js', 'data/b.json'], list).length > 0, {
   rejects: [['src/a.js'], [], ['data/b.json']],
   accepts: [['src/a.js', 'data/b.json'], ['src/a.js', 'data/b.json', 'src/extra.js']],
+});
+
+/**
+ * §6.8 (v2.1): no user-visible string cites a spec section or an internal code.
+ * Three surfaces, each named: markup text and the shell's rendered literals
+ * (sections), every disclosure string (sections and codes), and the render
+ * sites for a caught error (never the error's `detail` or `code`).
+ */
+const citesSection = (s) => /§\s*\d/.test(s);
+const citesCode = (s) => /\b[A-Z][A-Z0-9]*_[A-Z0-9_]+\b/.test(s);
+const markupSections = [htmlText, ...renderedLiterals].filter(citesSection);
+check('[markup text + rendered literals: index.html] §6.8: no section is cited on screen',
+  markupSections.length === 0, markupSections.map((s) => s.replace(/\s+/g, ' ').slice(0, 60)).join(' | ') || 'none');
+const discRefs = disclosureStrings.filter(([, v]) => citesSection(v) || citesCode(v));
+check('[disclosures.js, every string] §6.8: no section or internal code in any rendered copy',
+  discRefs.length === 0, discRefs.map(([k]) => k).join(', ') || `${disclosureStrings.length} strings`);
+
+// A render site that puts an error's detail or code into text() is a leak.
+const leaksDetail = (src) => /text\([^;]*\berr\??\.(detail|code)\b/.test(src);
+check('[script: index.html, every text() call] §6.8: no caught error\'s detail or code reaches the screen',
+  !leaksDetail(code.html) && /plainMessage\(/.test(code.html));
+discriminates('§6.8 error leak', leaksDetail, {
+  rejects: ["text(q, `Not removed — ${err.code ?? 'ERROR'}: ${err.detail}`);",
+    "text($('manual-error'), err.detail ?? String(err));", 'text(note, `Not logged — ${err?.detail}`);'],
+  accepts: ["text(q, plainMessage(DISC.REMOVE_ERROR_COPY, err));", 'console.warn(err.detail);',
+    "text($('manual-error'), plainMessage(DISC.MANUAL_ERROR_COPY, err, FIELD_LABELS));"],
 });
 
 /* ---------- run ---------- */

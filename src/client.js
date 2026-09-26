@@ -58,6 +58,24 @@ export function shapeOFF(p) {
   const n = p.nutriments ?? {};
   const tags = p.categories_tags ?? [];
 
+  /**
+   * §3.3c rule 1 (v2.1): read the fields that belong to the declared basis.
+   *
+   * Open Food Facts publishes each nutrient twice — `_100g` (normalised) and
+   * `_serving`. Until v2.1 this always read `_100g`, and rule 1 resolves a
+   * `nutrition_data_per: "serving"` record as per_serving, so scoring then
+   * divided per-100 g figures by the serving mass as if they were per serving:
+   * a silent error of serving mass / 100, with no trace on the stored entry.
+   * No live instance was found — OFF normalises nearly everything to 100g —
+   * which is why it was fixed now: entries are immutable, so the first live
+   * instance would have been unrepairable.
+   *
+   * A record whose serving does not parse refuses under rule 4 regardless, so
+   * keying on `nutrition_data_per` alone is equivalent to keying on the basis.
+   */
+  const perServing = p.nutrition_data_per === 'serving';
+  const f = (key) => n[`${key}${perServing ? '_serving' : '_100g'}`];
+
   return {
     code: p.code,
     product_name: p.product_name,
@@ -76,16 +94,18 @@ export function shapeOFF(p) {
     // tags, so a later reader cannot re-derive it.
     bulk_class: classifyBulk(tags),
     juice_classified: isJuiceClassified(tags),
+    // The bare keys (`added-sugars`, `sugars`) are the label's own figures, on
+    // the declared basis, so they remain a valid fallback under either basis.
     nutriments: {
-      sugars_added_g: n['added-sugars_100g'] ?? n['added-sugars'] ?? undefined,
-      sugars_total_g: n.sugars_100g ?? n.sugars ?? undefined,
-      sodium_mg: n.sodium_100g !== undefined ? n.sodium_100g * 1000 : undefined,
-      saturated_fat_g: n['saturated-fat_100g'] ?? undefined,
-      fiber_g: n.fiber_100g ?? undefined,
-      energy_kcal: n['energy-kcal_100g'] ?? undefined,
-      proteins_g: n.proteins_100g ?? undefined,
-      carbohydrates_g: n.carbohydrates_100g ?? undefined,
-      fat_g: n.fat_100g ?? undefined,
+      sugars_added_g: f('added-sugars') ?? n['added-sugars'] ?? undefined,
+      sugars_total_g: f('sugars') ?? n.sugars ?? undefined,
+      sodium_mg: f('sodium') !== undefined ? f('sodium') * 1000 : undefined,
+      saturated_fat_g: f('saturated-fat') ?? undefined,
+      fiber_g: f('fiber') ?? undefined,
+      energy_kcal: f('energy-kcal') ?? undefined,
+      proteins_g: f('proteins') ?? undefined,
+      carbohydrates_g: f('carbohydrates') ?? undefined,
+      fat_g: f('fat') ?? undefined,
     },
   };
 }

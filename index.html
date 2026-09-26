@@ -252,7 +252,7 @@
 
       <h2>Nutrients — per serving</h2>
       <p class="muted">Every field is supplied or marked absent. Leaving one blank
-        is not the same as saying it is unavailable (§8.5).</p>
+        is not the same as saying it is unavailable.</p>
       <div id="m-nutrients"></div>
       <h2>Calories and macros</h2>
       <div id="m-macros"></div>
@@ -346,7 +346,7 @@ import {
   todayLine, entryLine, entryMacroLine, incompleteMarker,
   completedDaySummary, windowSummary, normalizedLine, dayMacroLine,
   driverState, DRIVER_STATE, swapLine,
-  formatAmount, quantityAsEntered,
+  formatAmount, quantityAsEntered, plainMessage,
 } from './src/display.js';
 import { requestSwap } from './src/swap.js';
 import { macroTotals, normalizeWindow } from './src/macros.js';
@@ -554,7 +554,9 @@ function askRemove(el, entry) {
       // §8.4: a rejection names the rule that fired, and it is shown, not
       // swallowed. The entry is still there; the user must be able to see why.
       row.remove();
-      text(q, `Not removed — ${err.code ?? 'ERROR'}: ${err.detail ?? err.message}`);
+      // §6.8: plain words on screen; the code and detail go to the log.
+      console.warn(err);
+      text(q, plainMessage(DISC.REMOVE_ERROR_COPY, err));
     }
   });
 }
@@ -1131,6 +1133,9 @@ const MACRO_FIELDS_UI = [
   ['energy_kcal', 'Calories (kcal)'], ['protein_g', 'Protein (g)'],
   ['carbohydrate_g', 'Carbohydrate (g)'], ['fat_g', 'Fat (g)'],
 ];
+/** §6.8: the user reads the form's label, never a field key. */
+const FIELD_LABELS = Object.fromEntries([...NUTRIENT_FIELDS, ...MACRO_FIELDS_UI].map(([k, l]) => [k, l]));
+
 const CLASSIFICATION_FIELDS = [
   ['P4', 'Refined grain'], ['P5', 'Ultra-processed'], ['P6', 'Processed meat'],
   ['P7', 'Deep-fried'], ['A2', 'Omega-3 fish'], ['A3', 'Non-starchy vegetable'],
@@ -1379,7 +1384,8 @@ $('manual-submit').addEventListener('click', async () => {
   try {
     record = createManualRecord(readManual());
   } catch (err) {
-    text($('manual-error'), err.detail ?? String(err.message ?? err));
+    console.warn(err);                                     // §6.8: codes to the log
+    text($('manual-error'), plainMessage(DISC.MANUAL_ERROR_COPY, err, FIELD_LABELS));
     return;
   }
   const mass = record.manual.serving_mass_g;
@@ -1451,7 +1457,8 @@ async function logComboNow(combo) {
     // §8.5b atomicity: nothing was written. Say which component and why.
     const note = document.createElement('div');
     note.className = 'notice';
-    text(note, `Not logged — ${err.detail ?? err.message}`);
+    console.warn(err);                                     // §6.8: codes to the log
+    text(note, plainMessage(DISC.COMBO_ERROR_COPY, err));
     $('today-combos').prepend(note);
   }
 }
@@ -1534,7 +1541,8 @@ $('combo-save').addEventListener('click', async () => {
     await renderComboBuilder();
     text($('combo-error'), '');
   } catch (err) {
-    text($('combo-error'), err.detail ?? err.message);
+    console.warn(err);                                     // §6.8: codes to the log
+    text($('combo-error'), plainMessage(DISC.COMBO_ERROR_COPY, err));
   }
 });
 

@@ -67,9 +67,10 @@ export function prefillFromRefusal({ record, reason, raw = {}, isLiquid = false 
   if (!record || !PREFILL_REASONS.includes(reason)) return null;
 
   /**
-   * The values are per 100 g — or per 100 ml for a liquid, which is Open Food
-   * Facts' own convention for its `_100g` fields and the one §3.3c rule 2
-   * already relies on. USDA Foundation and SR Legacy are per 100 g (§8.2).
+   * Under a per-100 basis the values are per 100 g — or per 100 ml for a
+   * liquid, which is Open Food Facts' own convention for its `_100g` fields and
+   * the one §3.3c rule 2 already relies on. USDA Foundation and SR Legacy are
+   * per 100 g (§8.2). Under a per-serving basis they are one serving (below).
    *
    * They are converted to ONE serving, because the manual form is per serving
    * (§3.3c MANUAL). Carrying per-100 values into a per-serving form unconverted
@@ -77,7 +78,20 @@ export function prefillFromRefusal({ record, reason, raw = {}, isLiquid = false 
    */
   const declared = parseServing(raw.serving_size);
   let serving;
-  if (isLiquid) {
+
+  /**
+   * v2.1: under a per-serving basis the shaper now reads `_serving` fields
+   * (§3.3c rule 1), so the values are ALREADY one declared serving and are not
+   * scaled. Scaling them as if per 100 would reintroduce the very error rule 1's
+   * v2.1 text exists to prevent, in the form instead of in scoring. A
+   * per-serving record always has a parseable serving: without one its basis
+   * refuses under rule 4, and a basis refusal is never prefilled.
+   */
+  if (raw.nutrition_data_per === 'serving' && declared) {
+    serving = declared.unit === 'ml'
+      ? { volume_ml: declared.value, scale: 1, basisNote: 'declared' }
+      : { serving_mass_g: declared.value, scale: 1, basisNote: 'declared' };
+  } else if (isLiquid) {
     const ml = declared?.unit === 'ml' ? declared.value : 100;
     serving = { volume_ml: ml, scale: ml / 100, basisNote: declared?.unit === 'ml' ? 'declared' : 'default' };
   } else {

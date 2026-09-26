@@ -27,11 +27,13 @@ export const STORE_ERROR = {
   COMBO_COMPONENT_FAILED: 'COMBO_COMPONENT_FAILED',   // §8.5b
 };
 
+/** `detail` is for logs and tests; `info` is for the plain-words message (§6.8). */
 export class StoreRejection extends Error {
-  constructor(code, detail) {
+  constructor(code, detail, info = {}) {
     super(`${code}: ${detail}`);
     this.code = code;
     this.detail = detail;
+    this.info = info;
   }
 }
 
@@ -267,7 +269,8 @@ export async function logCombo(store, combo, { local_date, entryId, scoreAndBuil
     // A component that will not score refuses the whole combo (§8.5b).
     if (!entry) {
       throw new StoreRejection(STORE_ERROR.COMBO_COMPONENT_FAILED,
-        `component ${i + 1} (${component.food_name}) did not resolve; no entries written`);
+        `component ${i + 1} (${component.food_name}) did not resolve; no entries written`,
+        { name: component.food_name });
     }
     built.push(entry);
   }

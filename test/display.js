@@ -24,6 +24,7 @@ import { migrateEntryV1toV2, dayMacroLinePolicy } from '../src/store.js';
 import { buildEntry } from '../src/entry.js';
 import { fixtures } from './fixtures.js';
 import { isVerdict, SEC_6_6_NAMED, VERDICT_CASES } from './prohibited.js';
+import * as DISC from '../src/disclosures.js';
 
 let pass = 0, fail = 0;
 const results = { K: [], L: [], M: [], N: [], O: [] };
@@ -67,7 +68,7 @@ function suiteK() {
   /* ---- AV-2 — apple ---- */
   const r2 = scoreEntry(AV2.record, AV2.quantity);
   const lines2 = entryLine(ent(r2, AV2.record, 'Apple, medium', AV2.quantity));
-  eq('K', 'AV-2 §6.1 entry line', lines2[0], 'Apple, medium — -2.4');
+  eq('K', 'AV-2 §6.1 entry line', lines2[0], 'Apple, medium — −2.4');
   eq('K', 'AV-2 §6.1 driver line', lines2[1], '1.5 servings fruit');
 
   /* ---- AV-8 — juice, §3.5 + §2.4 ---- */
@@ -237,8 +238,8 @@ function suiteN() {
   check('N', 'exactly +5.0 is D_NEUTRAL (inclusive upper bound)', bandDaily(5.0).id === 'D_NEUTRAL');
   check('N', '+5.0000001 is D_ELEVATED', bandDaily(5.0000001).id === 'D_ELEVATED');
   check('N', 'exactly −5.0 is D_LOW', bandDaily(-5.0).id === 'D_LOW');
-  check('N', '−4.96 displays -5.0 but bands D_NEUTRAL',
-    formatScore(-4.96) === '-5.0' && bandDaily(-4.96).id === 'D_NEUTRAL');
+  check('N', '−4.96 displays −5.0 but bands D_NEUTRAL',
+    formatScore(-4.96) === '−5.0' && bandDaily(-4.96).id === 'D_NEUTRAL');
   check('N', 'exactly +15.0 is D_ELEVATED', bandDaily(15.0).id === 'D_ELEVATED');
   check('N', '+15.04 displays +15.0 but bands D_HIGH',
     formatScore(15.04) === '+15.0' && bandDaily(15.04).id === 'D_HIGH');
@@ -247,7 +248,7 @@ function suiteN() {
     formatScore(45.04) === '+45.0' && bandWindow(45.04).id === 'W_HIGH');
 
   eq('N', '§6.1 never renders -0.0', formatScore(-0.04), '+0.0');
-  eq('N', '§6.1 negative rounding is away from zero', formatScore(-1.85), '-1.9');
+  eq('N', '§6.1 negative rounding is away from zero', formatScore(-1.85), '−1.9');
   eq('N', 'macro 0.4 renders <1', formatMacro(0.4), '<1');
   eq('N', 'macro exact 0 renders 0', formatMacro(0), '0');
   eq('N', 'macro 152.5 rounds away from zero', formatMacro(152.5), '153');
@@ -358,7 +359,89 @@ function nameAuditRun() {
 
 /* ---------------- run ---------------- */
 
-suiteK(); suiteL(); suiteM(); suiteN(); suiteO(); nameAuditRun();
+/**
+ * §6.1 (v2.1): no rendered signed figure contains U+002D HYPHEN-MINUS.
+ *
+ * Swept across every signed display the module produces — entry score, day
+ * and window load, TODAY_LOAD, LOAD_PER_1000, the swap line — at values from
+ * −12 to +12, not one example each. Dates carry hyphens ("2026-09-14"), so the
+ * pattern is a hyphen directly before a digit and after a space, colon, dash
+ * or the start: the shape of a sign, never of a date.
+ */
+function suiteSign() {
+  const hyphenSign = (s) => /(^|[\s:(—])-\d/.test(s);
+  const produced = [];
+  for (let v = -12; v <= 12; v += 0.37) {
+    produced.push(
+      display.formatScore(v),
+      display.todayLine(v),
+      display.completedDaySummary('2026-09-14', v),
+      display.windowSummary('2026-09-14', v),
+      display.normalizedLine({ status: 'AVAILABLE', load_per_1000: v }),
+    );
+  }
+  const offenders = produced.filter(hyphenSign);
+  check('O', '[display.js, every signed display, −12…+12] §6.1: no signed figure uses a hyphen',
+    produced.length > 300 && offenders.length === 0,
+    offenders.slice(0, 3).join(' | ') || `${produced.length} strings, all + or U+2212`);
+  check('O', '§6.1: negatives render with U+2212', display.formatScore(-2.4) === '−2.4');
+  check('O', '§6.1: the zero rule holds — neither −0.0 nor -0.0',
+    [-0.04, -0.0001, 0, 0.04].every((v) => display.formatScore(v) === '+0.0'));
+
+  // §2.5 fifth form.
+  const rejects = ['Almonds, raw — -2.0', 'Today so far: -0.1', '2026-09-14: -3.1 · Low', 'Per 1,000 kcal: -1.2'];
+  const accepts = ['Almonds, raw — −2.0', 'Today so far: −0.1', '2026-09-14: +3.1 · Low',
+    '3 days ending 2026-09-14: +0.0', 'Omega-3 fish', 'Non-starchy vegetable'];
+  check('O', '§6.1 hyphen-sign check DISCRIMINATES',
+    rejects.every(hyphenSign) && accepts.every((s) => !hyphenSign(s)),
+    `${rejects.length} rejected, ${accepts.length} accepted — dates and hyphenated words pass`);
+}
+
+/**
+ * §6.8 (v2.1): the plain-words message for every code a user can meet.
+ * Never the error's detail; never a section, never a code.
+ */
+function suitePlain() {
+  const specRef = (s) => /§\s*\d|\b[A-Z][A-Z0-9]*_[A-Z0-9_]+\b/.test(s);
+  const labels = { fiber_g: 'Fibre (g)', sodium_mg: 'Sodium (mg)' };
+  const out = [];
+  for (const [table, codes] of [
+    [DISC.MANUAL_ERROR_COPY, ['FIELD_NOT_STATED', 'NOT_A_NUMBER', 'MASS_REQUIRED', 'DENSITY_REQUIRED',
+      'P3_REQUIRES_VOLUME', 'GRAIN_NOT_CHOSEN', 'SOMETHING_UNKNOWN']],
+    [DISC.REMOVE_ERROR_COPY, ['PRIOR_DAY_READ_ONLY', 'NO_SUCH_ENTRY', 'SOMETHING_UNKNOWN']],
+    [DISC.COMBO_ERROR_COPY, ['COMBO_COMPONENT_FAILED', 'ENTRY_EXISTS', 'MISSING_REQUIRED_FIELD', 'SOMETHING_UNKNOWN']],
+  ]) {
+    for (const code of codes) {
+      out.push(display.plainMessage(table, {
+        code, detail: `${code}: internal (§8.5)`, info: { field: 'fiber_g', value: '1,5', name: 'Sugar, granulated' },
+      }, labels));
+    }
+  }
+  const bad = out.filter(specRef);
+  check('O', '[plainMessage × every code] §6.8: no message cites a section or a code',
+    out.length === 14 && bad.length === 0, bad.join(' | ') || `${out.length} messages, all plain`);
+  check('O', '§6.8: a field is named by its form label, never its key',
+    display.plainMessage(DISC.MANUAL_ERROR_COPY, { code: 'FIELD_NOT_STATED', info: { field: 'fiber_g' } }, labels)
+      .startsWith('Fibre (g):'));
+  check('O', '§6.8: an unknown code gets the table\'s plain fallback, never the detail',
+    !display.plainMessage(DISC.REMOVE_ERROR_COPY, { code: 'X_Y', detail: 'X_Y: boom (§1)' }).includes('§'));
+  check('O', '§6.6: every error message is clean of verdicts', out.every((s) => !isVerdict(s)));
+
+  // §2.5 fifth form: the strings that were on screen before v2.1 are must-reject.
+  const rejects = [
+    'Every field is supplied or marked absent. Leaving one blank is not the same as saying it is unavailable (§8.5).',
+    'choose whole grain or refined — the label does not say which (§8.5, §3.1)',
+    'nutrients.fiber_g must be supplied or explicitly marked ABSENT (§8.5)',
+    'Not removed — PRIOR_DAY_READ_ONLY: entry e-1 is dated 2026-09-20, before 2026-09-26 (§8.4)',
+  ];
+  const accepts = ['Only today’s entries can be removed. Earlier days are final.', 'Fibre (g): enter the figure from the label.',
+    'Omega-3 fish', 'Today so far: +3.3'];
+  check('O', '§6.8 spec-reference check DISCRIMINATES',
+    rejects.every(specRef) && accepts.every((s) => !specRef(s)),
+    `${rejects.length} pre-v2.1 strings rejected, ${accepts.length} accepted`);
+}
+
+suiteK(); suiteL(); suiteM(); suiteN(); suiteO(); suiteSign(); suitePlain(); nameAuditRun();
 
 const heads = {
   K: 'SUITE K — vectors AV-2, AV-5, AV-8, AV-22, AV-21 (step 5 half)',

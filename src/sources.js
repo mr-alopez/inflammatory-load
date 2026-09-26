@@ -49,6 +49,56 @@ export function parseQuantity(text) {
 }
 
 /**
+ * §3.3c (v2.1): read a declared PACKAGE quantity — possibly carrying several
+ * figures — to decide whether the product is sold by mass or by volume.
+ *
+ * US packages read "20 oz (567 g)" or "12 fl oz (355 mL)". The strict reader
+ * above accepts only "567 g", so those refused under rule 4: about 140 of a
+ * 300-product US sample, five times as many as refused on flour. Every figure
+ * is now read, and the quantity resolves only if all of them agree.
+ *
+ *   - `fl oz` is matched BEFORE `oz`, so a fluid ounce is never read as a mass.
+ *   - A number preceded by a digit, point or comma is not a figure's start, so
+ *     "1,5 kg" is not read as "5 kg" and "1,000 g" is read as 1000.
+ *   - A metric figure, where present, supplies the net quantity; otherwise the
+ *     first imperial figure is converted exactly.
+ *
+ * Read, never interpreted: nothing comes from the name or category (§8.3).
+ *
+ * @returns { value, unit: 'g'|'ml', kind: 'mass'|'volume' } or null
+ */
+const PACKAGE_UNITS = {
+  'fl oz': { kind: 'volume', factor: 29.5735295625, metric: false },
+  oz: { kind: 'mass', factor: 28.349523125, metric: false },
+  lb: { kind: 'mass', factor: 453.59237, metric: false },
+  kg: { kind: 'mass', factor: 1000, metric: true },
+  g: { kind: 'mass', factor: 1, metric: true },
+  ml: { kind: 'volume', factor: 1, metric: true },
+  cl: { kind: 'volume', factor: 10, metric: true },
+  l: { kind: 'volume', factor: 1000, metric: true },
+};
+const PACKAGE_FIGURE =
+  /(?<![\d.,])(\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?)\s*(fl\.?\s*oz|oz|lbs?|kg|g|ml|cl|l)(?![a-z])/gi;
+
+export function parsePackage(text) {
+  if (typeof text !== 'string') return null;
+  const figures = [...text.matchAll(PACKAGE_FIGURE)].map((m) => {
+    let unit = m[2].toLowerCase().replace(/\s+/g, ' ').replace('fl. oz', 'fl oz').replace('fl.oz', 'fl oz');
+    if (unit === 'floz') unit = 'fl oz';
+    if (unit === 'lbs') unit = 'lb';
+    return { value: Number(m[1].replace(/,/g, '')), unit, ...PACKAGE_UNITS[unit] };
+  }).filter((f) => f.kind && Number.isFinite(f.value) && f.value > 0);
+
+  if (figures.length === 0) return null;
+  const kinds = new Set(figures.map((f) => f.kind));
+  if (kinds.size !== 1) return null;                     // the figures disagree: rule 4
+
+  const pick = figures.find((f) => f.metric) ?? figures[0];
+  const kind = figures[0].kind;
+  return { value: pick.value * pick.factor, unit: kind === 'mass' ? 'g' : 'ml', kind };
+}
+
+/**
  * §3.3: a user-entered amount. Accepts a decimal, a vulgar fraction, or a mixed
  * number — `0.5`, `1/3`, `1 1/2` — because that is how people say tablespoons.
  *
@@ -124,7 +174,9 @@ export function resolveFromOFF(raw) {
   if (!raw) return refuse(SOURCE_REJECT.NOT_FOUND, 'no OFF record');
 
   const servingSize = parseQuantity(raw.serving_size);
-  const packageQty = parseQuantity(raw.quantity);
+  // §3.3c (v2.1): every figure in the package string is read; see parsePackage.
+  const pkg = parsePackage(raw.quantity);
+  const packageQty = pkg ? { value: pkg.value, unit: pkg.unit } : null;
   const grainMajority = resolveGrainMajority(raw.ingredients);
   const isLiquid = !!(packageQty && VOLUME_UNITS.includes(packageQty.unit));
   const densityClass = raw.density_class ?? null;

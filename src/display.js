@@ -41,11 +41,21 @@ export function bandWindow(windowLoad) {
  * §1.3 — numeric formatting
  * ------------------------------------------------------------------ */
 
-/** §6.1: `{score:+0.1f}`. Zero magnitude always renders `+0.0`; `-0.0` never appears. */
+/**
+ * §6.1: `{score:+0.1f}`. Zero magnitude always renders `+0.0`; neither `−0.0`
+ * nor `-0.0` ever appears.
+ *
+ * v2.1: the minus is U+2212 MINUS SIGN, never U+002D HYPHEN-MINUS. In tabular
+ * figures `−` is the width of `+`, so signed values align; a hyphen is
+ * narrower and breaks the column tabular figures exist for. Every signed
+ * display — entry score, day and window load, TODAY_LOAD, LOAD_PER_1000, the
+ * swap candidate — goes through this one function.
+ */
+export const MINUS = '−';
 export function formatScore(value) {
   const r = roundHalfAwayFromZero(value, 1);
   if (r === 0) return '+0.0';
-  return (r > 0 ? '+' : '-') + Math.abs(r).toFixed(1);
+  return (r > 0 ? '+' : MINUS) + Math.abs(r).toFixed(1);
 }
 
 /** §5.3 value formatting: 1 dp half away from zero, trailing `.0` stripped. */
@@ -333,4 +343,26 @@ export function formatAmount(value) {
 export function quantityAsEntered(entry) {
   const amount = formatAmount(entry.quantity_value);
   return amount === null ? null : `${amount} ${entry.quantity_unit}`;
+}
+
+/* ------------------------------------------------------------------ *
+ * §6.8 — errors in plain words
+ * ------------------------------------------------------------------ */
+
+/**
+ * §6.8: the message a user sees for a rejection. Never the error's `detail`,
+ * which may cite a section or a code — that stays on the object for logs.
+ *
+ * @param copy    a code → template table from disclosures.js
+ * @param err     a ManualRejection or StoreRejection (or anything thrown)
+ * @param labels  field key → the label the form shows, so the user reads
+ *                "Fibre (g)", never "fiber_g"
+ */
+export function plainMessage(copy, err, labels = {}) {
+  const template = copy[err?.code] ?? copy.ERROR;
+  const info = err?.info ?? {};
+  return template
+    .replace('{field}', labels[info.field] ?? info.field ?? 'This field')
+    .replace('{value}', info.value ?? '')
+    .replace('{name}', info.name ?? 'An item');
 }
