@@ -64,6 +64,13 @@ export const ALCOHOL_FALLBACK_UNITS = {
   spirits: { fl_oz: 1.5, units: 1.0 },
 };
 
+/**
+ * §3.3a step 1 (v2.4): a label-derived density is used first only when its metric
+ * figure is uncertain by at most 1%; otherwise a class density wins, and the
+ * label pair is the fallback when no class resolves.
+ */
+export const LABEL_DENSITY_MAX_UNCERTAINTY = 0.01;
+
 /** §3.3 (COEFF-2) — P5's fixed serving, for every product. */
 export const P5_SERVING_MASS_G = 100;
 export const P5_SERVING_VOLUME_ML = 100;

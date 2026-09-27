@@ -79,6 +79,17 @@ const FIGURE = new RegExp(
 const MULTIPACK = /(\d+)\s*[x×]\s*$/i;
 const VULGAR = { '½': '1/2', '⅓': '1/3', '⅔': '2/3', '¼': '1/4', '¾': '3/4', '⅛': '1/8', '⅜': '3/8', '⅝': '5/8', '⅞': '7/8' };
 
+/**
+ * Half a unit in the last stated digit: "14" ±0.5, "14.2" ±0.05. For a fraction,
+ * half of its denominator's unit ("1/2" ±0.25). Used only for §3.3a's precision rule.
+ */
+export function uncertainty(raw) {
+  const frac = raw.match(/\/(\d+)$/);
+  if (frac) return 0.5 / Number(frac[1]);
+  const decimals = (raw.split('.')[1] ?? '').length;
+  return 0.5 * 10 ** -decimals;
+}
+
 function figureValue(t) {
   const mixed = t.match(/^(\d+)\s+(\d+)\/(\d+)$/);
   if (mixed) return Number(mixed[3]) > 0 ? Number(mixed[1]) + Number(mixed[2]) / Number(mixed[3]) : NaN;
@@ -137,27 +148,32 @@ export function readDeclared(text, { serving = false } = {}) {
   if (figures.length === 0) return null;
 
   /**
-   * v2.3: a serving string `{household measure} ({metric figure})` follows the US
-   * label convention (21 CFR 101.9(b)(7)). The parenthesised metric figure IS the
-   * serving and alone decides mass versus volume; the household measure describes
-   * the same serving, so it cannot contradict it. A volume/mass pair is a declared
-   * density (§3.3a step 1). Applies only with exactly one metric figure, inside
-   * parentheses, after every household figure — anything else falls through to
-   * the agreement rule below.
+   * v2.4: a serving string with ONE metric figure and at most one household
+   * measure (cup, tbsp, tsp, fl oz — or a count such as "slice", which is not a
+   * figure at all), one of the two in parentheses, describes one serving in
+   * either order: "2 tbsp (32 g)" and "14 g (1 Tbsp)" alike. The metric figure IS
+   * the serving and alone decides mass versus volume; the household measure
+   * describes the same serving, so it cannot contradict it. A volume/mass pair is
+   * a declared density (§3.3a step 1). Two metric figures, or two household
+   * figures, fall through to the agreement rule below.
    */
   if (serving) {
     const depth = depthAt(text);
     const metric = figures.filter((f) => f.metric);
     const household = figures.filter((f) => !f.metric);
     const [m] = metric;
-    if (metric.length === 1 && depth[m.at] > 0 && household.every((h) => depth[h.at] === 0 && h.at < m.at)) {
+    const [h] = household;
+    const paired = h ? (depth[m?.at] > 0) !== (depth[h.at] > 0) : true;
+    if (metric.length === 1 && household.length <= 1 && paired) {
       let density = null;
-      if (household.length === 1 && household[0].kind !== m.kind) {
-        const h = household[0];
+      if (h && h.kind !== m.kind) {
         const amount = (f) => f.value * f.factor;
         density = m.kind === 'mass'
           ? { mass_g: amount(m), volume_ml: amount(h) }
           : { mass_g: amount(h), volume_ml: amount(m) };
+        // §3.3a step 1 (v2.4) precision: half a unit in the metric figure's last
+        // stated digit, relative to the figure. The household unit is exact.
+        density.rel_uncertainty = uncertainty(m.raw) / m.value;
       }
       return result(m, null, density);
     }

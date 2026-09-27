@@ -93,7 +93,10 @@ export function parseAmount(text) {
  * ------------------------------------------------------------------ */
 
 const WHOLE_GRAIN = /whole\s?(grain|wheat|meal|oat|rye|spelt)/i;
-const REFINED_GRAIN = /\b(wheat flour|white flour|enriched flour|refined|semolina|maida)\b/i;
+// v2.4: "refined" counts only when a grain word follows it. A non-grain
+// ingredient never counts as refined grain, whatever its wording — "refined
+// sunflower oil" is an oil.
+const REFINED_GRAIN = /\b(wheat flour|white flour|enriched flour|semolina|maida|refined\s+(?:wheat|grain|flour|rice|corn|maize|oat|rye|barley|spelt)s?)\b/i;
 
 /**
  * Determine majority grain mass from DECLARED ingredient percentages.
@@ -137,11 +140,10 @@ export function resolveGrainMajority(ingredients = [], ingredientsText = null) {
  * read from ingredient order: a refined flour outside a clause still refuses.
  *
  * Reads the raw text, because Open Food Facts' parsed list drops the clause.
- * The pattern is strict: "N% or less", optionally "contains … of". "Less than
- * N%" is not accepted — the handoff named one form, and loosening it is a spec
- * decision.
+ * The pattern is strict: "N% or less" or "less than N%" (v2.4), optionally
+ * "contains … of". "Less than" is the tighter bound, so it qualifies.
  */
-const BOUND = /(?:contains\s+)?\d+(?:\.\d+)?\s*%\s+or\s+less(?:\s+of)?/gi;
+const BOUND = /(?:contains\s+)?(?:\d+(?:\.\d+)?\s*%\s+or\s+less|less\s+than\s+\d+(?:\.\d+)?\s*%)(?:\s+of)?/gi;
 
 /** Where each bound clause runs: to the close of its bracket, a sentence stop, or the end. */
 function boundClauses(text) {

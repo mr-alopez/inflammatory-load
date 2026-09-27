@@ -6,6 +6,8 @@
  *   AS. AV-42 — a declared per-100 ml basis (§3.3c rule 2)
  *   AT. AV-43 — §3.1 declared bounds: "N% or less"
  *   AU. AV-44 — §6.1b shortcut entries, stored and rendered as entered
+ *   AV. AV-45 — rounding half away from zero, positive (§1.3)
+ *   AW. AV-46 — label density precision (§3.3a step 1)
  */
 
 import { resolveFromOFF, quantityShortcuts, enteredShortcut, declaredBoundSettlesWhole,
@@ -13,14 +15,17 @@ import { resolveFromOFF, quantityShortcuts, enteredShortcut, declaredBoundSettle
 import { shapeOFF } from '../src/client.js';
 import { scoreEntry } from '../src/scoring.js';
 import { buildEntry } from '../src/entry.js';
-import { quantityAsEntered } from '../src/display.js';
+import { quantityAsEntered, formatScore, entryLine } from '../src/display.js';
+import { readDeclared } from '../src/declared.js';
+import { resolveDensity, resolveVolumeDensity } from '../src/scoring.js';
+import { DENSITY_MAP } from '../src/coefficients.js';
 import { COEFF_VERSION } from '../src/coefficients.js';
 import { EntryStore as Store } from '../src/store.js';
 import { MemoryBackend } from '../src/backends/memory.js';
 
 const TOL = 1e-9;
 let pass = 0, fail = 0;
-const results = { AR: [], AS: [], AT: [], AU: [] };
+const results = { AR: [], AS: [], AT: [], AU: [], AV: [], AW: [] };
 const discrimination = [];
 function check(s, label, ok, note = '') {
   ok ? pass++ : fail++;
@@ -120,11 +125,26 @@ function suiteAT() {
     ['a refined flour outside the clause', 'Whole wheat flour, enriched wheat flour, water, 2% or less of: salt'],
     ['the first ingredient is refined', 'Enriched wheat flour, whole wheat flour, 2% or less of: salt'],
     ['no bound clause at all', 'Whole wheat flour, water, wheat flour'],
-    ['"less than 2%" is not the stated form', 'Whole wheat flour, water, less than 2% of: wheat flour'],
     ['the clause ended at a sentence stop', 'Whole wheat flour, 2% or less of: salt. Wheat flour, water'],
   ];
   for (const [why, text] of rejects) check('AT', `AV-43 must-reject: ${why}`, !declaredBoundSettlesWhole(text));
   eq('AT', 'AV-43: a text-less record still refuses', resolveGrainMajority(PARSED, null), 'unknown');
+
+  // v2.4 (item 6).
+  check('AT', 'AV-43: "contains less than 2% of" is a bound like "2% or less"',
+    declaredBoundSettlesWhole('Whole wheat flour, water, contains less than 2% of: salt, wheat flour'));
+  check('AT', 'AV-43: "whole oats" as the first ingredient qualifies',
+    declaredBoundSettlesWhole('Whole oats, sugar, 2% or less of: salt, enriched wheat flour'));
+  check('AT', 'AV-43: "refined sunflower oil" outside the clause no longer blocks',
+    declaredBoundSettlesWhole('Whole wheat flour, water, refined sunflower oil, 2% or less of: salt, wheat flour'));
+  eq('AT', '§3.1: a parsed list with whole wheat and "refined palm oil" is whole — an oil is not a grain',
+    resolveGrainMajority([{ text: 'whole wheat flour' }, { text: 'refined palm oil' }]), 'whole');
+  eq('AT', '§3.1: "refined wheat flour" still counts as refined grain',
+    resolveGrainMajority([{ text: 'whole wheat flour' }, { text: 'refined wheat flour' }]), 'unknown');
+  const bareRefined = (t) => /\brefined\b/i.test(t);                    // the v2.3 pattern's defect
+  check('AT', 'AV-43 DISCRIMINATES: the bare word "refined" counts an oil as refined grain; the rule does not',
+    bareRefined('refined sunflower oil')
+    && declaredBoundSettlesWhole('Whole wheat flour, refined sunflower oil, 2% or less of: salt, wheat flour'));
 
   /* ---- discrimination ---- */
   check('AT', 'AV-43 DISCRIMINATES: without the rule the loaf refuses on grain; with it, whole',
@@ -176,11 +196,73 @@ async function suiteAU() {
   discrimination.push(['AV-44', 'shortcut stored as resolved grams (v2.2)', 'categorical', '"60 g" vs "2 servings (60 g)"']);
 }
 
+/* ================================================================== *
+ * AV — AV-45: rounding half away from zero, positive
+ * ================================================================== */
+
+function suiteAV() {
+  const rec = { name: 'Half-way test', product_id: 'local:half', source: 'MANUAL', manual: { serving_mass_g: 100 },
+    classifications: {}, occasion_category: 'UNCATEGORIZED', category_map_version: 'CATMAP-1',
+    reported: { added_sugar_g: 2.5, sodium_mg: 0, saturated_fat_g: 0, fiber_g: 0,
+      energy_kcal: 10, protein_g: 0, carbohydrate_g: 2.5, fat_g: 0 } };
+  const s = scoreEntry(rec, { value: 100, unit: 'g' });
+  eq('AV', 'AV-45: basis per_serving, provenance DECLARED', `${s.basis}/${s.basisProvenance}`, 'per_serving/DECLARED');
+  near('AV', 'AV-45: P1 contributes +0.25', s.contributions.P1, 0.25);
+  near('AV', 'AV-45: sum +0.25 exact', s.score, 0.25);
+  eq('AV', 'AV-45: renders +0.3', formatScore(s.score), '+0.3');
+  const e = buildEntry(s, rec, { entry_id: 'e-45', food_name: rec.name, quantity: { value: 100, unit: 'g' }, local_date: '2026-09-27' });
+  eq('AV', 'AV-45: the entry line reads "Half-way test — +0.3"', entryLine(e)[0], 'Half-way test — +0.3');
+  eq('AV', 'AV-15\'s negative case still renders −1.9', formatScore(-1.85), '\u22121.9');
+
+  /* ---- discrimination: the string assertion catches both defects ---- */
+  const halfEven = (v) => { const x = v * 10, f = Math.floor(x), r = x - f;
+    const n = Math.abs(r - 0.5) < 1e-9 ? (f % 2 === 0 ? f : f + 1) : Math.round(x); return n / 10; };
+  const trunc = (v) => Math.trunc(v * 10) / 10;
+  check('AV', 'AV-45 DISCRIMINATES: half to even gives +0.2', halfEven(0.25) === 0.2 && formatScore(0.25) === '+0.3');
+  check('AV', 'AV-45 DISCRIMINATES: truncation gives +0.2', trunc(0.25) === 0.2);
+  discrimination.push(['AV-45', 'half to even / truncation', 'categorical', '"+0.2" vs "+0.3"']);
+}
+
+/* ================================================================== *
+ * AW — AV-46: label density precision
+ * ================================================================== */
+
+function suiteAW() {
+  // The oil: "1 tbsp (14 g)" — the 14 g is ±0.5 g, ±3.6%, over the 1% limit.
+  const oil = resolveFromOFF(shapeOFF(off({ nutrition_data_per: '100ml', quantity: '500 ml',
+    serving_size: '1 tbsp (14 g)', categories_tags: ['en:vegetable-oils'] })));
+  near('AW', 'AV-46: the pair is uncertain by 0.5/14 = 3.57%', oil.record.derived_density.rel_uncertainty, 0.5 / 14);
+  const d = resolveDensity(oil.record);
+  near('AW', 'AV-46: "1 tbsp (14 g)" yields 0.91 from DMAP-1', d.density, DENSITY_MAP.culinary_oil);
+  eq('AW', 'AV-46: …provenance DMAP-1', d.provenance, 'DMAP-1');
+
+  // Precise enough: "1 cup (240 mL)" is ±0.2%; a mass pair "8 fl oz (240.5 g)" ±0.02% is used first.
+  near('AW', '"240 mL" is uncertain by 0.5/240 = 0.21%', 0.5 / 240, readDeclared('1 cup (240 mL)', { serving: true }) ? 0.5 / 240 : NaN);
+  const milk = resolveFromOFF(shapeOFF(off({ nutrition_data_per: '100ml', quantity: '1 l',
+    serving_size: '8 fl oz (248.5 g)', categories_tags: ['en:milks'] })));
+  const dm = resolveDensity(milk.record);
+  eq('AW', 'a precise label pair (248.5 g, ±0.02%) is used before the class', dm.provenance, 'DERIVED');
+  near('AW', '…at 248.5 / 236.5882365 g/ml', dm.density, 248.5 / 236.5882365);
+
+  // No class resolves: the imprecise pair is the fallback, not a refusal.
+  const pb = resolveFromOFF(shapeOFF(off({ serving_size: '2 tbsp (32 g)', categories_tags: ['en:spreads'] })));
+  const dp = resolveVolumeDensity(pb.record);
+  eq('AW', 'no class: "2 tbsp (32 g)" (±1.6%) falls back to the label pair', dp.provenance, 'DERIVED');
+  near('AW', '…32 / 29.5735295625', dp.density, 32 / 29.5735295625);
+
+  /* ---- discrimination ---- */
+  const labelFirst = oil.record.derived_density.mass_g / oil.record.derived_density.volume_ml;
+  check('AW', 'AV-46 DISCRIMINATES: label-first gives 0.947; the rule gives 0.91',
+    Math.abs(labelFirst - 0.94678) < 1e-4 && Math.abs(d.density - 0.91) < 1e-9);
+  discrimination.push(['AV-46', 'label pair used regardless of precision', (labelFirst - 0.91).toExponential(3), '0.947 vs 0.91 g/ml — 4.0%']);
+}
+
 /* ---------------- run ---------------- */
 
-suiteAR(); suiteAS(); suiteAT(); await suiteAU();
+suiteAR(); suiteAS(); suiteAT(); await suiteAU(); suiteAV(); suiteAW();
 const heads = { AR: 'SUITE AR — AV-41, P5 fixed serving', AS: 'SUITE AS — AV-42, declared per 100 ml',
-  AT: 'SUITE AT — AV-43, declared bounds', AU: 'SUITE AU — AV-44, shortcut entries' };
+  AT: 'SUITE AT — AV-43, declared bounds', AU: 'SUITE AU — AV-44, shortcut entries',
+  AV: 'SUITE AV — AV-45, rounding half away from zero', AW: 'SUITE AW — AV-46, label density precision' };
 for (const k of Object.keys(heads)) {
   console.log(`\n${heads[k]}`); console.log('='.repeat(heads[k].length));
   for (const l of results[k]) console.log(l);

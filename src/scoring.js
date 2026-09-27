@@ -21,6 +21,7 @@ import {
   P5_SERVING_VOLUME_ML,
   VOLUME_UNITS,
   COEFF_VERSION,
+  LABEL_DENSITY_MAX_UNCERTAINTY,
 } from './coefficients.js';
 import { classifyBulk, bulkDensity, BDMAP_VERSION } from './bulk-density-map.js';
 
@@ -146,9 +147,13 @@ export function resolveBasis(record) {
  * ------------------------------------------------------------------ */
 
 export function resolveDensity(record) {
-  // 1. Per-product derivation, preferred whenever available.
+  // 1. Per-product derivation — preferred, when PRECISE (v2.4). A USDA portion
+  //    carries no uncertainty and is always precise; a label pair carries the
+  //    uncertainty of its metric figure (src/declared.js).
   const d = record.derived_density;
-  if (d && Number.isFinite(d.mass_g) && Number.isFinite(d.volume_ml) && d.volume_ml > 0) {
+  const usable = !!d && Number.isFinite(d.mass_g) && Number.isFinite(d.volume_ml) && d.volume_ml > 0;
+  const precise = usable && !(d.rel_uncertainty > LABEL_DENSITY_MAX_UNCERTAINTY);
+  if (precise) {
     return { density: d.mass_g / d.volume_ml, provenance: 'DERIVED' };
   }
   // A manual entry supplies its own density directly (§8.5).
@@ -159,6 +164,11 @@ export function resolveDensity(record) {
   // 2. DMAP-1, keyed on the record's own declared liquid class.
   if (record.density_class && DENSITY_MAP[record.density_class] !== undefined) {
     return { density: DENSITY_MAP[record.density_class], provenance: 'DMAP-1' };
+  }
+  // An imprecise label pair — "1 tbsp (14 g)", ±3.6% — yields to any class
+  // density, including step 2b's; it is used only when no class resolves.
+  if (usable && resolveBulkDensity(record).density === null) {
+    return { density: d.mass_g / d.volume_ml, provenance: 'DERIVED' };
   }
   // 3. Does not resolve. Density is never assumed to be 1.00.
   return { density: null, provenance: null };

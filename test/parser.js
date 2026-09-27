@@ -207,8 +207,15 @@ function suiteAN() {
     pair(readDeclared('1 thsp (15 ml)', { serving: true })), '[15,"ml"]');
   eq('AN', '§3.3c: outside the form — two metric figures — agreement still applies',
     readDeclared('2 tbsp (33 g) (33 g)', { serving: true }), null);
-  eq('AN', '§3.3c: outside the form — metric first, household in parentheses — agreement applies',
-    readDeclared('14 g (1 Tbsp)', { serving: true }), null);
+  // v2.4: either order — "14 g (1 Tbsp)" is the same serving written the other way.
+  eq('AN', 'AV-37: "14 g (1 Tbsp)" — metric first — is a 14 g serving',
+    pair(readDeclared('14 g (1 Tbsp)', { serving: true })), '[14,"g"]');
+  near('AN', 'AV-37: …and pairs 14 g with one tablespoon',
+    readDeclared('14 g (1 Tbsp)', { serving: true })?.density?.volume_ml, 14.78676478125);
+  eq('AN', '§3.3c: two household figures fall to the agreement rule ("1 cup 2 tbsp (40 g)")',
+    readDeclared('1 cup 2 tbsp (40 g)', { serving: true }), null);
+  eq('AN', '§3.3c: neither figure in parentheses is not the form ("14 g 1 tbsp")',
+    readDeclared('14 g 1 tbsp', { serving: true }), null);
   eq('AN', '§3.3c: the convention is for serving strings only — a package "2 tbsp (32 g)" does not resolve',
     readDeclared('2 tbsp (32 g)'), null);
   eq('AN', 'AV-37: "1 slice" — no figure, refuses', basisOf(perServing('1 slice')), 'BASIS_UNRESOLVED');

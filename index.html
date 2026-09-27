@@ -439,7 +439,8 @@ import { createManualRecord, saveProduct, recordFromSaved, ABSENT,
 import { buildEntry } from './src/entry.js';
 import { lookupBarcode, searchOFF, searchUSDA, lookupUSDA, LOOKUP } from './src/client.js';
 import * as DISC from './src/disclosures.js';
-import { ATTRIBUTES, ATTRIBUTE_ORDER, DENSITY_MAP, DMAP_VERSION } from './src/coefficients.js';
+import { ATTRIBUTES, ATTRIBUTE_ORDER, DENSITY_MAP, DMAP_VERSION, ETHANOL_G_PER_UNIT,
+  P5_SERVING_MASS_G, P5_SERVING_VOLUME_ML } from './src/coefficients.js';
 import { BULK_DENSITY_MAP, BDMAP_VERSION } from './src/bulk-density-map.js';
 import {
   localDate, entriesForDate, dailyLoad, todayLoad,
@@ -933,8 +934,8 @@ function renderMethod() {
     ATTRIBUTE_ORDER.map((id) => {
       const a = ATTRIBUTES[id];
       const per = a.kind === 'nutrient' ? `${a.per} ${id === 'P2' ? 'mg' : 'g'}`
-        : id === 'P3' ? 'unit (14 g ethanol)'
-        : id === 'P5' ? 'serving (100 g or 100 ml)'
+        : id === 'P3' ? `unit (${ETHANOL_G_PER_UNIT} g ethanol)`
+        : id === 'P5' ? `serving (${P5_SERVING_MASS_G} g or ${P5_SERVING_VOLUME_ML} ml)`
         : `serving (${a.servingMassG} g)`;
       // §6.1: a signed figure takes + or − (U+2212), never a hyphen.
       return [id, a.name, a.displayName, per, formatScore(a.coeff)];
@@ -944,7 +945,7 @@ function renderMethod() {
   table($('m-servings'), ['', 'Attribute', 'One serving'],
     ATTRIBUTE_ORDER.filter((id) => ATTRIBUTES[id].kind === 'classification')
       .map((id) => [id, ATTRIBUTES[id].name,
-        id === 'P5' ? '100 g for every product (liquids: 100 ml)'
+        id === 'P5' ? `${P5_SERVING_MASS_G} g for every product (liquids: ${P5_SERVING_VOLUME_ML} ml)`
           : `${ATTRIBUTES[id].servingMassG} g`]));
 
   // §3.3a DMAP table, from data/density-map.json itself.

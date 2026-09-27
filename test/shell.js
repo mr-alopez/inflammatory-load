@@ -766,6 +766,46 @@ discriminates('§6.1 hand-built sign', handBuiltSign, {
   accepts: ['formatScore(a.coeff)', "`${n} g`", "value.toFixed(2)", "'+ ' + label"],
 });
 
+/**
+ * §9.1 (v2.4): the Method page renders from the engine's own data. A value that
+ * changes in the engine must change on the page with no second edit, so the
+ * page's code holds no hand-written coefficient or serving value: no string
+ * literal (template text outside ${…}) carrying a digit, and no `?? 'word'`
+ * fallback standing in for a value. The v14 P5 rows are the must-reject cases.
+ */
+const methodBody = (src) => {
+  const i = src.indexOf('function renderMethod(');
+  if (i < 0) return '';
+  // The function's closing brace, on its own line — LF or CRLF, since git may
+  // hand back either.
+  const end = src.slice(i).search(/\r?\n\}\r?\n/);
+  return end < 0 ? '' : src.slice(i, i + end);
+};
+const handWrittenValue = (body) => {
+  const literals = [...body.matchAll(/'([^'\n]*)'|"([^"\n]*)"|`([^`]*)`/g)]
+    .map((m) => (m[1] ?? m[2] ?? m[3] ?? '').replace(/\$\{[^}]*\}/g, ''));
+  // An attribute ID ('P5') is an identifier, not a value.
+  return literals.some((l) => /\d/.test(l) && !/^[PA]\d$/.test(l)) || /\?\?\s*['"][A-Za-z]/.test(body);
+};
+check('[script: index.html renderMethod] §9.1: no hand-written coefficient or serving value on the Method page',
+  methodBody(code.html).length > 200 && !handWrittenValue(methodBody(code.html)));
+discriminates('§9.1 hand-written Method value', handWrittenValue, {
+  rejects: [
+    // v14, the attribute table's P5 row: a word standing in for the serving.
+    ": `serving (${a.servingMassG ?? 'labelled'}${a.servingMassG ? ' g' : ''})`;",
+    // v14, the servings table's P5 row.
+    ": 'the labelled serving, or 100 g']));",
+    ": id === 'P3' ? 'unit (14 g ethanol)'",
+    "return [id, a.name, a.displayName, per, '+1.5'];",
+  ],
+  accepts: [
+    ": `serving (${P5_SERVING_MASS_G} g or ${P5_SERVING_VOLUME_ML} ml)`",
+    "return [id, a.name, a.displayName, per, formatScore(a.coeff)];",
+    "table($('m-servings'), ['', 'Attribute', 'One serving'],",
+    ": id === 'P5' ? `serving (${P5_SERVING_MASS_G} g)`",
+  ],
+});
+
 /* ---------- run ---------- */
 
 console.log('\nSHELL — §13.3 structural constraints');
