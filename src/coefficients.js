@@ -23,7 +23,7 @@ export const ATTRIBUTES = {
   P3: { kind: 'alcohol', coeff: +2.0, name: 'Alcohol' , displayName: "alcohol"},
   P4: { kind: 'classification', servingMassG: 30, coeff: +1.0, name: 'Refined grain' , displayName: "refined grain"},
   // P5's serving is fixed (§3.3, COEFF-2): 100 g, or 100 ml converted.
-  P5: { kind: 'classification', servingMassG: null, coeff: +1.5, name: 'Ultra-processed (NOVA 4)' , displayName: "ultra-processed"},
+  P5: { kind: 'classification', servingMassG: 100, coeff: +1.5, name: 'Ultra-processed (NOVA 4)' , displayName: "ultra-processed"},
   P6: { kind: 'classification', servingMassG: 50, coeff: +2.0, name: 'Processed meat' , displayName: "processed meat"},
   P7: { kind: 'classification', servingMassG: 100, coeff: +1.5, name: 'Deep-fried preparation' , displayName: "deep-fried"},
   A2: { kind: 'classification', servingMassG: 100, coeff: -3.0, name: 'Omega-3 fish' , displayName: "omega-3 fish"},

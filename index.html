@@ -5,120 +5,195 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Inflammatory Load</title>
 <link rel="manifest" href="./manifest.webmanifest">
-<meta name="theme-color" content="#1a1a1a">
+<meta name="theme-color" content="#f4f4f3" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#181818" media="(prefers-color-scheme: dark)">
 <style>
+  /* Direction C — Ledger (v2.3). No hue anywhere: hierarchy from size, weight
+   * and space. The accent IS the ink. §4.4: nothing about an entry, a score or a
+   * band changes its colour — sign is the + / − character alone. */
   :root {
-    --bg: #fbfbfa; --fg: #1a1a1a; --dim: #6b6b6b; --rule: #e2e2df;
-    --card: #ffffff; --nav: #ffffff;
+    color-scheme: light;
+    --bg: #f4f4f3;
+    --surface: #ffffff;
+    --fg: #151515;
+    --dim: #5a5a5a;
+    --rule: #dcdcda;
+    --rule-strong: #bdbdba;
+    --accent: #151515;
+    --accent-ink: #ffffff;
+    --field: #ffffff;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --nav-h: 56px;
   }
   @media (prefers-color-scheme: dark) {
-    :root {
-      --bg: #17171a; --fg: #ececec; --dim: #9a9a9a; --rule: #2e2e33;
-      --card: #1e1e22; --nav: #1e1e22;
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --bg: #181818; --surface: #222222; --fg: #ededed; --dim: #a9a9a9;
+      --rule: #333333; --rule-strong: #4a4a4a; --accent: #ededed; --accent-ink: #181818;
+      --field: #1d1d1d;
     }
   }
-  * { box-sizing: border-box; }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #181818; --surface: #222222; --fg: #ededed; --dim: #a9a9a9;
+    --rule: #333333; --rule-strong: #4a4a4a; --accent: #ededed; --accent-ink: #181818;
+    --field: #1d1d1d;
+  }
+
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  [hidden] { display: none !important; }
+  /* Tabular figures everywhere: + and − share a width, so signed columns align. */
   body {
     margin: 0; background: var(--bg); color: var(--fg);
-    font: 15px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-    padding-bottom: env(safe-area-inset-bottom);
+    font: 15px/1.4 var(--sans); font-variant-numeric: tabular-nums;
+    padding-bottom: calc(var(--nav-h) + env(safe-area-inset-bottom));
   }
-  header { padding: 20px 18px 10px; }
-  h1 { margin: 0; font-size: 17px; font-weight: 600; letter-spacing: -0.01em; }
-  main { padding: 0 18px 84px; max-width: 640px; margin: 0 auto; }
+  header { padding: 16px 16px 0; }
+  h1 { margin: 0; font: 600 15px/1.2 var(--sans); color: var(--fg); }
+  main { padding: 0 16px 24px; max-width: 640px; margin: 0 auto; }
+  h2 { font: 600 11px/1.2 var(--sans); letter-spacing: .08em; text-transform: uppercase;
+       color: var(--dim); margin: 22px 0 0; padding-bottom: 6px; border-bottom: 1px solid var(--rule-strong); }
+  .muted, .empty, .hold-hint { color: var(--dim); }
+  .empty { padding: 20px 0; }
+  .hold-hint { font-size: 12.5px; margin: 10px 0 0; }
 
-  /* §4.4: no entry is banded or coloured. Bands are text, on days and windows only. */
-  .load { font-variant-numeric: tabular-nums; font-size: 26px; font-weight: 600; }
-  .summary { border-bottom: 1px solid var(--rule); padding: 14px 0; }
-  .summary-line { font-variant-numeric: tabular-nums; }
-  .entry { background: var(--card); border: 1px solid var(--rule); border-radius: 10px;
-           padding: 12px 14px; margin: 10px 0; }
-  .entry-line { font-variant-numeric: tabular-nums; }
-  .drivers, .macros, .incomplete { color: var(--dim); font-size: 13.5px; margin-top: 3px; }
-  /* §6.1b: the quantity as entered, beneath the entry line and above drivers. */
-  .quantity { color: var(--dim); font-size: 13.5px; margin-top: 3px;
-              font-variant-numeric: tabular-nums; }
-  /* §8.5 (v2.0): the one question a prefilled grain refusal asks. */
-  .grain-choice { border: 1px solid var(--rule); border-radius: 10px; padding: 8px 14px 12px;
-                  margin: 12px 0; }
-  .grain-choice legend { font-size: 13px; color: var(--dim); padding: 0 4px; }
-  .muted { color: var(--dim); }
-  .empty { color: var(--dim); padding: 28px 0; }
-  section[hidden] { display: none; }
-  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em;
-       color: var(--dim); font-weight: 600; margin: 26px 0 8px; }
-  pre.method { white-space: pre-wrap; font: inherit; color: var(--dim);
-               border-left: 2px solid var(--rule); padding-left: 12px; margin: 10px 0 18px; }
+  /* ── Today ── */
+  #today { display: flex; flex-direction: column; }
+  #today > * { order: 2; }
+  #today-load, #today-macros, #today .method-link { order: 1; }
+  #today .today-actions { order: 3; }
 
-  nav { position: fixed; left: 0; right: 0; bottom: 0; display: flex;
-        background: var(--nav); border-top: 1px solid var(--rule);
-        padding-bottom: env(safe-area-inset-bottom); }
-  nav button { flex: 1; background: none; border: 0; color: var(--dim);
-               font: inherit; padding: 12px 4px; cursor: pointer; }
-  nav button[aria-current="page"] { color: var(--fg); font-weight: 600; }
+  /* The figure. Scales down on a narrow phone rather than wrapping. */
+  .load { font: 300 clamp(34px, 12.5vw, 52px)/1 var(--sans); letter-spacing: -.03em;
+          margin: 10px 0 4px; white-space: nowrap; }
+  #today-macros { font: 500 13px/1.4 var(--sans); color: var(--dim); margin: 0 0 4px; }
+  .method-link { font: 500 12.5px var(--sans) !important; color: var(--dim) !important; background: none !important;
+                 border: 0 !important; text-align: left; padding: 2px 0 !important; margin: 0 0 4px !important;
+                 text-decoration: underline; text-underline-offset: 3px; width: auto !important; cursor: pointer; }
 
-  .add { display: block; width: 100%; margin: 10px 0; padding: 13px;
-         font: inherit; font-weight: 600; background: var(--card); color: var(--fg);
-         border: 1px solid var(--rule); border-radius: 10px; cursor: pointer; }
-  .add.secondary { font-weight: 400; color: var(--dim); }
-  .field { display: block; margin: 12px 0; font-size: 13.5px; color: var(--dim); }
-  .field input[type="text"], .field input:not([type]), .field select {
-    display: block; width: 100%; margin-top: 5px; padding: 10px; font: inherit;
-    color: var(--fg); background: var(--card);
-    border: 1px solid var(--rule); border-radius: 8px; }
-  .row { display: flex; gap: 8px; align-items: center; margin-top: 5px; }
-  .row input:not([type="checkbox"]) { flex: 1; }
-  .row select { width: auto; }
-  /* A factual statement about the app (§13.3), never about the user. */
-  .notice { border: 1px solid var(--rule); border-left-width: 3px; border-radius: 8px;
-            padding: 11px 13px; margin: 12px 0; font-size: 13.5px; color: var(--dim); }
-  video { width: 100%; border-radius: 10px; background: #000; aspect-ratio: 4/3; }
-  .result { display: block; width: 100%; text-align: left; background: var(--card);
-            border: 1px solid var(--rule); border-radius: 10px; padding: 11px 13px;
-            margin: 8px 0; font: inherit; color: var(--fg); cursor: pointer; }
-  .result-detail { color: var(--dim); font-size: 13px; margin-top: 2px; }
-  /* §8.5b: grouping is presentational only — it reads combo_id off ordinary entries. */
-  .combo-group { border: 1px solid var(--rule); border-radius: 10px; padding: 4px 10px 10px;
-    margin: 10px 0; background: var(--card); }
-  .combo-group > h3 { font-size: 13px; font-weight: 600; color: var(--dim);
-    margin: 10px 4px 0; text-transform: none; letter-spacing: 0; }
-  .combo-group .entry { background: none; border: 0; border-top: 1px solid var(--rule);
-    border-radius: 0; margin: 0; padding: 10px 4px; }
-  .combo-remove-group { display: block; width: 100%; margin-top: 8px; padding: 8px;
-    font: inherit; font-size: 13.5px; color: var(--dim); background: none;
-    border: 1px dashed var(--rule); border-radius: 8px; cursor: pointer; }
-  .combo-draft-row { display: flex; justify-content: space-between; gap: 8px;
-    align-items: center; font-size: 13.5px; padding: 8px 0;
-    border-bottom: 1px solid var(--rule); }
-  .combo-draft-row button { font: inherit; font-size: 13px; color: var(--dim);
-    background: none; border: 1px solid var(--rule); border-radius: 8px;
-    padding: 4px 10px; cursor: pointer; }
-  .swap-ask { display: block; width: 100%; margin-top: 10px; padding: 8px; font: inherit;
-    font-size: 13.5px; color: var(--dim); background: none; border: 1px dashed var(--rule);
-    border-radius: 8px; cursor: pointer; }
-  .swap-result { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--rule);
-    font-size: 13.5px; color: var(--dim); }
-  /* Press-and-hold removal — today's entries only (§8.4). */
-  .entry.removable { -webkit-user-select: none; user-select: none;
-    -webkit-touch-callout: none; }
-  .entry.holding { border-color: var(--fg); }
-  .entry-remove { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--rule);
-    font-size: 13.5px; color: var(--dim); }
+  .today-actions {
+    position: sticky; bottom: var(--nav-h); z-index: 5;
+    background: var(--bg); margin: 12px -16px 0; padding: 10px 16px 12px;
+    border-top: 1px solid var(--rule-strong);
+  }
+  /* Combos as chips in one horizontal row: each a single tap, the row scrolls sideways. */
+  #today-combos { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; }
+  #today-combos::-webkit-scrollbar { display: none; }
+  #today-combos .add { flex: none; width: auto; margin: 0 0 8px; padding: 10px 14px; border-radius: 999px;
+                       background: var(--surface); color: var(--fg); border: 1px solid var(--rule-strong);
+                       font: 600 14px var(--sans); }
+  #today-combos .notice { flex: 1 0 100%; margin: 0 0 8px; }
+
+  /* ── Buttons ── */
+  .add {
+    display: block; width: 100%; margin: 8px 0; padding: 15px 12px; cursor: pointer;
+    font: 600 15px/1.2 var(--sans); border-radius: 12px;
+    background: var(--accent); color: var(--accent-ink); border: 1px solid var(--accent);
+  }
+  .add.secondary { background: transparent; color: var(--fg); border: 1px solid var(--rule-strong); }
+
+  /* ── Entries: dense rows under a rule. Nothing about a row changes with its score. ── */
+  .entry { background: transparent; color: var(--fg); border: 0; border-bottom: 1px solid var(--rule);
+           padding: 11px 0; margin: 0; }
+  .entry-line { font-weight: 600; font-size: 15.5px; }
+  .quantity { font: 500 13.5px/1.4 var(--sans); color: var(--fg); }
+  .drivers, .macros, .incomplete { color: var(--dim); font-size: 12.5px; margin-top: 1px; }
+  .swap-ask { display: inline-block; margin-top: 6px; padding: 5px 10px; cursor: pointer; border-radius: 999px;
+              background: transparent; border: 1px solid var(--rule-strong); font: 500 12px var(--sans);
+              color: var(--dim); }
+  .swap-result, .entry-remove { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--rule);
+                                font-size: 13px; color: var(--dim); }
   .entry-remove .row { margin-top: 8px; }
-  .entry-remove button { flex: 1; padding: 8px; font: inherit; font-size: 13.5px;
-    border-radius: 8px; border: 1px solid var(--rule); background: var(--card);
-    color: var(--fg); cursor: pointer; }
-  .hold-hint { color: var(--dim); font-size: 13px; margin: 10px 0 0; }
-  .nf { display: grid; grid-template-columns: 1fr auto auto; gap: 8px;
-        align-items: center; margin: 7px 0; font-size: 13.5px; }
-  .mtable { width: 100%; border-collapse: collapse; font-size: 13px; margin: 8px 0 4px; }
-  .mtable th { text-align: left; font-weight: 600; color: var(--dim); padding: 6px 8px 6px 0;
-               border-bottom: 1px solid var(--rule); }
-  .mtable td { padding: 5px 8px 5px 0; border-bottom: 1px solid var(--rule); color: var(--dim);
-               font-variant-numeric: tabular-nums; }
+  .entry-remove button { flex: 1; padding: 9px; font: 600 13px var(--sans); border-radius: 10px;
+                         border: 1px solid var(--rule-strong); background: var(--field); color: var(--fg); }
+  .entry.removable { user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+  .entry.holding { background: var(--surface); }
+
+  .combo-group { margin: 0; }
+  .combo-group > h3 { font: 600 11px var(--sans); letter-spacing: .08em; text-transform: uppercase;
+                      color: var(--dim); margin: 14px 0 0; }
+  .combo-group .entry { padding-left: 12px; border-left: 2px solid var(--rule-strong); }
+  .combo-remove-group { display: inline-block; margin: 8px 0 4px; padding: 5px 10px; cursor: pointer;
+                        border-radius: 999px; background: transparent; border: 1px solid var(--rule-strong);
+                        font: 500 12px var(--sans); color: var(--dim); }
+
+  /* ── Refusal and error text (§6.9, §13.5): ONE style, everywhere. Factual, not
+   *    alarming — ink on the surface under a plain rule. No hue, no icon. ── */
+  .notice { background: var(--surface); border: 1px solid var(--rule-strong); border-radius: 12px;
+            padding: 12px 14px; margin: 12px 0; font-size: 14.5px; color: var(--fg); }
+  .notice:empty { display: none; }
+
+  /* ── Add ── */
+  #add-choose { display: flex; flex-direction: column; justify-content: flex-end;
+                min-height: calc(100vh - var(--nav-h) - 60px); padding-bottom: 8px; }
+  #add-choose .add { background: var(--surface); color: var(--fg); border: 1px solid var(--rule);
+                     text-align: left; padding: 17px 16px; font-size: 16px; }
+  #add-choose .add:first-child { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  .field { display: block; margin: 12px 0; font: 500 12.5px var(--sans); color: var(--dim); }
+  .field input:not([type]), .field input[type="text"], .field select {
+    display: block; width: 100%; margin-top: 5px; padding: 11px 12px;
+    font: 500 16px var(--sans); color: var(--fg); background: var(--field);
+    border: 1px solid var(--rule-strong); border-radius: 10px; }
+  input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .row { display: flex; gap: 8px; align-items: center; margin-top: 6px; }
+  .row input:not([type="checkbox"]):not([type="radio"]) { flex: 1; }
+  .row select { width: auto; }
+  #quantity-product { font: 600 17px/1.3 var(--sans); margin: 10px 0 0; }
+  #quantity-preview { font: 500 14px/1.4 var(--sans); color: var(--fg); }
+  /* The shortcuts sit together, secondary to Confirm: a pair of quiet buttons. */
+  #quantity-package, #quantity-serving { background: var(--surface); color: var(--fg); border: 1px solid var(--rule-strong); }
+  .nf { display: grid; grid-template-columns: 1fr 84px auto; gap: 8px; align-items: center;
+        margin: 0; padding: 7px 0; font-size: 14px; border-bottom: 1px solid var(--rule); }
+  .nf input { width: 84px; padding: 8px 10px; font: 500 15px var(--sans); color: var(--fg);
+              background: var(--field); border: 1px solid var(--rule-strong); border-radius: 8px; text-align: right; }
+  .nf .row { margin: 0; font-size: 12px; color: var(--dim); }
+  .grain-choice { border: 1px solid var(--rule-strong); border-radius: 12px; padding: 6px 14px 12px;
+                  margin: 12px 0; background: var(--surface); }
+  .grain-choice legend { font: 600 11px var(--sans); letter-spacing: .08em; text-transform: uppercase;
+                         color: var(--dim); padding: 0 4px; }
+  .grain-choice .row { font-size: 16px; padding: 6px 0; }
+  #manual-submit { position: sticky; bottom: calc(var(--nav-h) + 8px); z-index: 5;
+                   box-shadow: 0 0 0 10px var(--bg); }  /* a plate, so it never sits on a row */
+  .result { display: block; width: 100%; text-align: left; background: transparent; color: var(--fg);
+            border: 0; border-bottom: 1px solid var(--rule); border-radius: 0; padding: 12px 0; margin: 0;
+            font: 600 15px var(--sans); cursor: pointer; }
+  .result-detail { font: 500 12.5px var(--sans); color: var(--dim); margin-top: 2px; }
+  .combo-draft-row { display: flex; justify-content: space-between; gap: 8px; align-items: center;
+                     font-size: 14px; padding: 10px 0; border-bottom: 1px solid var(--rule); }
+  .combo-draft-row button { font: 500 12px var(--sans); color: var(--dim); background: transparent;
+                            border: 1px solid var(--rule-strong); border-radius: 999px; padding: 5px 10px; cursor: pointer; }
+  video { width: 100%; border-radius: 12px; background: #000; aspect-ratio: 4/3; }  /* the camera's own frame */
+
+  /* ── Log: the window figure is set like Today's, one step down ── */
+  #window-summary { font: 400 20px/1.3 var(--sans); letter-spacing: -.01em; margin: 10px 0 2px; }
+  #window-normalized { font-size: 13px; margin: 0 0 4px; }
+  .summary { border-bottom: 1px solid var(--rule); padding: 11px 0; }
+  .summary .summary-line { font-weight: 600; }
+  .summary .entry:last-child { border-bottom: 0; }   /* the day's own rule closes the group */
+
+  /* ── Trend: one neutral mark per block, in the ink (§4.5). Never coloured. ── */
+  #trend-plot svg { display: block; color: var(--fg); margin: 14px 0 6px;
+                    border-bottom: 1px solid var(--rule); }
+  #trend-legend { font-size: 13px; }
+
+  /* ── Method ── */
+  .mtable { width: 100%; border-collapse: collapse; font-size: 13px; margin: 8px 0; }
+  .mtable th, .mtable td { text-align: left; padding: 6px 8px 6px 0; border-bottom: 1px solid var(--rule); }
+  .mtable th { color: var(--dim); font-weight: 600; }
+  .mtable td { color: var(--dim); }
   .mtable td:nth-child(2) { color: var(--fg); }
-  .nf input { width: 90px; padding: 8px; font: inherit; color: var(--fg);
-              background: var(--card); border: 1px solid var(--rule); border-radius: 8px; }
+  pre.method { white-space: pre-wrap; font: inherit; color: var(--dim); border-left: 2px solid var(--rule-strong);
+               padding-left: 12px; }
+  #method p.muted { font-size: 14px; }
+
+  /* ── Nav ── */
+  nav { position: fixed; left: 0; right: 0; bottom: 0; z-index: 10; display: flex;
+        height: calc(var(--nav-h) + env(safe-area-inset-bottom));
+        background: var(--bg); border-top: 1px solid var(--rule-strong);
+        padding-bottom: env(safe-area-inset-bottom); }
+  nav button { flex: 1; background: none; border: 0; cursor: pointer; color: var(--dim);
+               font: 500 12px/1 var(--sans); }
+  nav button[aria-current="page"] { color: var(--fg); font-weight: 700; }
 </style>
 </head>
 <body>
@@ -130,8 +205,12 @@
   <section id="today">
     <div class="load" id="today-load">Today so far: +0.0</div>
     <div class="macros" id="today-macros"></div>
-    <div id="today-combos"></div>
-    <button class="add" id="go-add">Add an entry</button>
+    <!-- Ledger: the combo chips and Add share one strip, sticky above the nav,
+         within thumb reach (v2.0 brief). -->
+    <div class="today-actions">
+      <div id="today-combos"></div>
+      <button class="add" id="go-add">Add an entry</button>
+    </div>
     <button class="add secondary method-link" data-screen="method">How these numbers are made</button>
     <h2>Entries</h2>
     <div id="today-entries"></div>
@@ -173,7 +252,7 @@
       <div id="combo-draft"></div>
       <button class="add" id="combo-add-component">Add a component</button>
       <button class="add" id="combo-save">Save combo</button>
-      <p class="muted" id="combo-error"></p>
+      <p class="notice" id="combo-error"></p>
       <button class="add secondary" data-back>Back</button>
     </div>
 
@@ -267,7 +346,7 @@
       <label class="field" id="m-abv-wrap" hidden>ABV %
         <input id="m-abv" inputmode="decimal" autocomplete="off"></label>
 
-      <p class="muted" id="manual-error"></p>
+      <p class="notice" id="manual-error"></p>
       <button class="add" id="manual-submit">Log this entry</button>
       <label class="field"><span class="row"><input type="checkbox" id="m-save">
         <span>Also save this product for next time (stays on this device)</span></span></label>
@@ -347,7 +426,7 @@ import {
   todayLine, entryLine, entryMacroLine, incompleteMarker,
   completedDaySummary, windowSummary, normalizedLine, dayMacroLine,
   driverState, DRIVER_STATE, swapLine,
-  formatAmount, quantityAsEntered, plainMessage,
+  formatAmount, quantityAsEntered, plainMessage, formatScore,
 } from './src/display.js';
 import { requestSwap } from './src/swap.js';
 import { macroTotals, normalizeWindow } from './src/macros.js';
@@ -557,6 +636,7 @@ function askRemove(el, entry) {
       row.remove();
       // §6.8: plain words on screen; the code and detail go to the log.
       console.warn(err);
+      q.className = 'notice';                              // one refusal style (§6.9)
       text(q, plainMessage(DISC.REMOVE_ERROR_COPY, err));
     }
   });
@@ -854,16 +934,18 @@ function renderMethod() {
       const a = ATTRIBUTES[id];
       const per = a.kind === 'nutrient' ? `${a.per} ${id === 'P2' ? 'mg' : 'g'}`
         : id === 'P3' ? 'unit (14 g ethanol)'
-        : `serving (${a.servingMassG ?? 'labelled'}${a.servingMassG ? ' g' : ''})`;
-      return [id, a.name, a.displayName, per, (a.coeff > 0 ? '+' : '') + a.coeff.toFixed(1)];
+        : id === 'P5' ? 'serving (100 g or 100 ml)'
+        : `serving (${a.servingMassG} g)`;
+      // §6.1: a signed figure takes + or − (U+2212), never a hyphen.
+      return [id, a.name, a.displayName, per, formatScore(a.coeff)];
     }));
 
   // §3.3 serving masses, from the same table the scorer uses.
   table($('m-servings'), ['', 'Attribute', 'One serving'],
     ATTRIBUTE_ORDER.filter((id) => ATTRIBUTES[id].kind === 'classification')
       .map((id) => [id, ATTRIBUTES[id].name,
-        ATTRIBUTES[id].servingMassG ? `${ATTRIBUTES[id].servingMassG} g`
-          : 'the labelled serving, or 100 g']));
+        id === 'P5' ? '100 g for every product (liquids: 100 ml)'
+          : `${ATTRIBUTES[id].servingMassG} g`]));
 
   // §3.3a DMAP table, from data/density-map.json itself.
   table($('m-densities'), [`Class (${DMAP_VERSION})`, 'g/ml'],
@@ -1119,6 +1201,8 @@ function previewQuantity() {
   const q = currentQuantity();
   if (!q || !flow.record) { text($('quantity-preview'), ''); return; }
   const scored = scoreEntry(flow.record, q);
+  // A refusal takes the one refusal style (§13.5); a preview line does not.
+  $('quantity-preview').className = scored.created ? '' : 'notice';
   if (!scored.created) {
     text($('quantity-preview'), REFUSAL_COPY[scored.reason] ?? '');
     return;

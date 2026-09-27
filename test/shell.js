@@ -751,6 +751,21 @@ discriminates('§6.8 error leak', leaksDetail, {
     "text($('manual-error'), plainMessage(DISC.MANUAL_ERROR_COPY, err, FIELD_LABELS));"],
 });
 
+/**
+ * §6.1 (v2.3): the shell never builds a sign by hand. The display-module sweep
+ * could not see the Method page, which prefixed '+' itself and let toFixed()
+ * supply a hyphen: "-1.0" shipped there until the Ledger screenshots showed it.
+ * Every signed figure goes through formatScore.
+ */
+const handBuiltSign = (src) =>
+  /['"`]\+['"`]\s*:\s*['"`]{2}\s*\)\s*\+[^;\n]*toFixed/.test(src) || /['"`]\+['"`]\s*\+[^;\n]*toFixed/.test(src);
+check('[script: index.html] §6.1: no signed figure is built by hand — formatScore renders every sign',
+  !handBuiltSign(code.html));
+discriminates('§6.1 hand-built sign', handBuiltSign, {
+  rejects: ["(a.coeff > 0 ? '+' : '') + a.coeff.toFixed(1)", "'+' + v.toFixed(1)", '(x > 0 ? "+" : "") + x.toFixed(2)'],
+  accepts: ['formatScore(a.coeff)', "`${n} g`", "value.toFixed(2)", "'+ ' + label"],
+});
+
 /* ---------- run ---------- */
 
 console.log('\nSHELL — §13.3 structural constraints');

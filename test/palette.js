@@ -213,16 +213,28 @@ check('4. contrast arithmetic is right: black on white is 21:1, a colour on itse
  * The directions
  * ================================================================== */
 
+/**
+ * v2.3: the SHIPPED stylesheet is judged too — the <style> block in index.html,
+ * which is what the phone actually renders (v1.5: a check must cover the surface
+ * that ships, not a sample of it). Every check below, contrast included, runs on
+ * it in both themes, exactly as on the contact-sheet directions.
+ */
+export const shippedCss = () => {
+  const html = readFileSync('index.html', 'utf8');
+  const m = html.match(/<style>([\s\S]*?)<\/style>/);
+  return m ? m[1] : '';
+};
 const DIRECTIONS = [
   ['A — Meso', 'design/direction-a-meso.css'],
   ['B — Notebook', 'design/direction-b-notebook.css'],
   ['C — Ledger', 'design/direction-c-ledger.css'],
+  ['SHIPPED', 'index.html <style>'],
 ];
 const REQUIRED = ['bg', 'surface', 'fg', 'dim', 'rule', 'accent', 'accent-ink', 'field'];
 const contrastTable = [];
 
 for (const [name, file] of DIRECTIONS) {
-  const css = readFileSync(file, 'utf8');
+  const css = name === 'SHIPPED' ? shippedCss() : readFileSync(file, 'utf8');
   out.push(`\nDIRECTION ${name}  (${file})`);
   out.push('='.repeat(12 + name.length));
 
@@ -263,6 +275,25 @@ for (const [name, file] of DIRECTIONS) {
     check(`4. WCAG AA for every text pair — ${theme}`, failing.length === 0,
       failing.join(', ') || `${TEXT_PAIRS.length} pairs, lowest ${worst.toFixed(2)}:1`);
   }
+}
+
+/* ---- the picked direction is what ships ---- */
+{
+  const shipped = tokens(shippedCss());
+  const ledger = tokens(readFileSync('design/direction-c-ledger.css', 'utf8'));
+  out.push('\nTHE PICK SHIPS');
+  out.push('==============');
+  check('the shipped stylesheet was found and parsed', shippedCss().length > 1000 && !!shipped.light,
+    `${shippedCss().length} characters`);
+  for (const theme of ['light', 'dark', 'media']) {
+    const diff = Object.keys(ledger[theme] ?? {}).filter((k) => ledger[theme][k] !== shipped[theme]?.[k]);
+    check(`shipped ${theme} tokens equal Direction C — Ledger's`, diff.length === 0,
+      diff.map((k) => `--${k}: ${shipped[theme]?.[k]} vs ${ledger[theme][k]}`).join(', ') || `${Object.keys(ledger[theme]).length} tokens`);
+  }
+  // Judged first (§2.5 fifth form): the comparison notices one changed token.
+  const altered = tokens(readFileSync('design/direction-c-ledger.css', 'utf8').replace('--dim: #5a5a5a', '--dim: #777777'));
+  check('the token comparison DISCRIMINATES: one changed token is caught',
+    Object.keys(ledger.light).some((k) => ledger.light[k] !== altered.light[k]));
 }
 
 /* ---------------- run ---------------- */
