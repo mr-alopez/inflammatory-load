@@ -1,20 +1,26 @@
 /**
  * Spec v2.1 §3.3c: the package quantity and the per-serving read.
- * Vectors AV-35, AV-36.
+ * Vectors AV-35 to AV-40.
  *
  * Suites:
  *   AL. AV-35 — dual-unit package strings, end to end through the resolver
  *   AM. AV-36 — per-serving fields under a per-serving basis, end to end
+ *   AN. AV-37 — serving strings read by the same rule (rule 1)
+ *   AO. AV-38 — the serving-string fallback for rules 2 and 3; the serving shortcut
+ *   AP. AV-39 — the unit table, every row; commas
+ *   AQ. AV-40 — multipacks
  */
 
-import { parsePackage, resolveFromOFF, parseQuantity } from '../src/sources.js';
+import { parsePackage, resolveFromOFF, parseQuantity, quantityShortcuts, resolveShortcut } from '../src/sources.js';
+import { readDeclared, DECLARED_UNITS } from '../src/declared.js';
+import { parseServing } from '../src/prefill.js';
 import { shapeOFF } from '../src/client.js';
 import { scoreEntry } from '../src/scoring.js';
 import { prefillFromRefusal } from '../src/prefill.js';
 
 const TOL = 1e-9;
 let pass = 0, fail = 0;
-const results = { AL: [], AM: [] };
+const results = { AL: [], AM: [], AN: [], AO: [], AP: [], AQ: [] };
 const discrimination = [];
 function check(s, label, ok, note = '') {
   ok ? pass++ : fail++;
@@ -98,13 +104,13 @@ function suiteAL() {
   near('AL', 'AV-35 DISCRIMINATES: a rounded 28.35 g ounce gives 453.6, not 453.59237', 16 * 28.35, 453.6);
 
   // Read, never guessed: separators and look-alikes.
-  eq('AL', '§3.3c: "1,000 g" is one thousand grams', parsePackage('1,000 g')?.value, 1000);
+  // v2.2 (AV-39): a comma figure does not resolve in EITHER direction.
   eq('AL', '§3.3c: "1,5 kg" is not read as 5 kg — it does not resolve', parsePackage('1,5 kg'), null);
   eq('AL', '§3.3c: "12 gummies" is not 12 g', parsePackage('12 gummies'), null);
   eq('AL', '§3.3c: "12 FL OZ" in capitals is volume', parsePackage('12 FL OZ')?.kind, 'volume');
   eq('AL', '§3.3c: "1.5 L" is 1500 ml', parsePackage('1.5 L')?.value, 1500);
 
-  discrimination.push(['AV-35', 'strict reader on "20 oz (567 g)"', 'categorical', 'refuses vs resolves per_100g — ~140 of 300 products']);
+  discrimination.push(['AV-35', 'strict reader on "20 oz (567 g)"', 'categorical', 'refuses vs resolves per_100g — 39 of 300 products']);
   discrimination.push(['AV-35', 'oz matched before fl oz', 'categorical', 'a drink refuses (figures disagree) or scores on per_100g']);
   discrimination.push(['AV-35', 'first figure wins on disagreeing figures', 'categorical', 'resolves as mass vs refuses under rule 4']);
   discrimination.push(['AV-35', 'rounded ounce (28.35)', (453.6 - 453.59237).toExponential(3), '453.6 g vs 453.59237 g']);
@@ -159,10 +165,203 @@ function suiteAM() {
     '500 mg vs 200 mg — correct is 0.4× defective (serving mass / 100)']);
 }
 
+/* ================================================================== *
+ * AN — AV-37: serving strings (rule 1)
+ * ================================================================== */
+
+/** A per-serving OFF record: only the serving string varies. */
+const perServing = (serving_size, extra = {}) => ({
+  code: '0000000000037', product_name: 'Test', nutrition_data_per: 'serving', quantity: null,
+  serving_size, nova_group: 3, categories_tags: ['en:breads'], ingredients: [],
+  nutriments: { sodium_serving: 0.12, 'added-sugars_serving': 1, 'saturated-fat_serving': 0,
+    fiber_serving: 2, 'energy-kcal_serving': 70, proteins_serving: 4, carbohydrates_serving: 12, fat_serving: 1 },
+  ...extra,
+});
+const basisOf = (raw) => {
+  const r = resolveFromOFF(shapeOFF(raw));
+  return r.resolved ? scoreEntry(r.record, { value: 26, unit: 'g' }).basis : r.reason;
+};
+const pair = (q) => JSON.stringify(q ? [q.value, q.unit] : null);
+
+function suiteAN() {
+  eq('AN', 'AV-37: "1 slice (26 g)" → per_serving', basisOf(perServing('1 slice (26 g)')), 'per_serving');
+  const slice = resolveFromOFF(shapeOFF(perServing('1 slice (26 g)')));
+  eq('AN', 'AV-37: …serving 26 g', pair(slice.record?.off.serving_size), '[26,"g"]');
+  // A volume serving needs a density to score (§3.3a), so the vector's cup is milk.
+  const cup = resolveFromOFF(shapeOFF(perServing('1 cup (240 mL)', { categories_tags: ['en:milks'] })));
+  eq('AN', 'AV-37: "1 cup (240 mL)" → serving 240 ml (the metric figure)', pair(cup.record?.off.serving_size), '[240,"ml"]');
+  eq('AN', 'AV-37: …basis per_serving', cup.resolved && scoreEntry(cup.record, { value: 240, unit: 'ml' }).basis, 'per_serving');
+  eq('AN', 'AV-37: the same cup with no density class refuses on density, not on the basis',
+    resolveFromOFF(shapeOFF(perServing('1 cup (240 mL)'))).reason, 'DENSITY_UNRESOLVED');
+  eq('AN', 'AV-37: "2 tbsp (32 g)" — volume and mass disagree, refuses', basisOf(perServing('2 tbsp (32 g)')), 'BASIS_UNRESOLVED');
+  eq('AN', 'AV-37: "1 slice" — no figure, refuses', basisOf(perServing('1 slice')), 'BASIS_UNRESOLVED');
+  // Fractions are figures too, in every spelling a label uses (live: "1 ½ cup (39 g)").
+  eq('AN', '§3.3c: "1 ½ cup (39 g)" refuses like "1 1/2 cup (39 g)"', readDeclared('1 ½ cup (39 g)'), null);
+  eq('AN', '§3.3c: "1 1/2 cup (39 g)" refuses', readDeclared('1 1/2 cup (39 g)'), null);
+  near('AN', '§3.3c: "½ cup" is 118.29411825 ml', readDeclared('½ cup')?.value, 118.29411825);
+  near('AN', '§3.3c: "1 ½ cup" is 354.88235475 ml', readDeclared('1 ½ cup')?.value, 354.88235475);
+  eq('AN', '§3.3c: "0.75 cup cereal (55 g)" refuses (volume and mass)', readDeclared('0.75 cup cereal (55 g)'), null);
+  // A volume word missing from the table would vanish and leave the mass (live: "2 tablespoon (32 g)").
+  eq('AN', '§3.3c: "2 tablespoon (32 g)" refuses like "2 tbsp (32 g)"', readDeclared('2 tablespoon (32 g)'), null);
+  eq('AN', '§3.3c: "2 Tbsp. (33 g)" refuses', readDeclared('2 Tbsp. (33 g)'), null);
+
+  // The live record that found it: Nature's Own 100% Whole Wheat, 0072250037129.
+  const natures = perServing('1 slice (26 g)', { quantity: '20 oz (567 g)' });
+  eq('AN', 'AV-37: the live 0072250037129 record ("20 oz (567 g)", "1 slice (26 g)") → per_serving',
+    basisOf(natures), 'per_serving');
+
+  // One reader: the prefill form reads the serving rule 1 reads.
+  for (const t of ['1 slice (26 g)', '1 cup (240 mL)', '2 tbsp (32 g)', '1 slice']) {
+    const d = readDeclared(t);
+    eq('AN', `one reader: prefill and rule 1 agree on "${t}"`,
+      JSON.stringify(parseServing(t)), JSON.stringify(d ? { value: d.value, unit: d.unit } : null));
+  }
+
+  /* ---- discrimination ---- */
+  eq('AN', 'AV-37 DISCRIMINATES: the strict reader refuses "1 slice (26 g)"', parseQuantity('1 slice (26 g)'), null);
+  // The pre-v2.2 prefill reader took the parenthesised figure alone.
+  const parenOnly = (t) => { const m = t.match(/\(\s*([0-9.]+)\s*(g|ml)\s*\)/i); return m ? { value: +m[1], unit: m[2].toLowerCase() } : null; };
+  check('AN', 'AV-37 DISCRIMINATES: a parenthesis-only reader resolves "2 tbsp (32 g)" as 32 g; the rule refuses',
+    parenOnly('2 tbsp (32 g)')?.value === 32 && readDeclared('2 tbsp (32 g)') === null);
+  near('AN', 'AV-37 DISCRIMINATES: reading the cup, not the metric figure, gives 236.5882365 ml',
+    8 * 29.5735295625, 236.5882365);
+  discrimination.push(['AV-37', 'strict serving reader on "1 slice (26 g)"', 'categorical', 'refuses vs per_serving at 26 g — the live 0072250037129']);
+  discrimination.push(['AV-37', 'parenthesis-only reader on "2 tbsp (32 g)"', 'categorical', 'resolves 32 g vs refuses (figures disagree)']);
+  discrimination.push(['AV-37', 'cup read instead of the metric 240 mL', (240 - 236.5882365).toExponential(3), '236.588 ml vs 240 ml']);
+}
+
+/* ================================================================== *
+ * AO — AV-38: the serving-string fallback; the serving shortcut
+ * ================================================================== */
+
+function suiteAO() {
+  const crackers = product(null, { serving_size: '5 crackers (30 g)', categories_tags: ['en:crackers'] });
+  const r = resolveFromOFF(shapeOFF(crackers));
+  eq('AO', 'AV-38: no package, serving "5 crackers (30 g)" → resolves', r.resolved, true);
+  eq('AO', 'AV-38: …basis per_100g (rule 3, by the serving)', r.resolved && scoreEntry(r.record, { value: 30, unit: 'g' }).basis, 'per_100g');
+  const sc = r.resolved ? quantityShortcuts(r.record) : [];
+  const serving = sc.find((s) => s.id === 'serving');
+  eq('AO', 'AV-38: …offers "1 serving (30 g)"', serving?.label, '1 serving (30 g)');
+  eq('AO', 'AV-38: …and no package shortcut', sc.some((s) => s.id === 'package'), false);
+  eq('AO', '§3.3: 1/2 serving resolves to 15 g before scoring', JSON.stringify(serving && resolveShortcut(serving, 1 / 2)), '{"value":15,"unit":"g"}');
+  eq('AO', '§3.3: 2 servings resolve to 60 g', serving && resolveShortcut(serving, 2).value, 60);
+
+  const c = resolveFromOFF(shapeOFF(product('500 g', { serving_size: '1 cup (240 mL)' })));
+  eq('AO', 'AV-38: package "500 g", serving "1 cup (240 mL)" → disagree, refuses', c.reason, 'BASIS_UNRESOLVED');
+
+  // The serving never changes the basis: a per-100 g record stays per 100.
+  const both = resolveFromOFF(shapeOFF(product('500 g', { serving_size: '30 g', categories_tags: ['en:crackers'] })));
+  eq('AO', 'AV-38: package and serving agree → per_100g, not per_serving', scoreEntry(both.record, { value: 30, unit: 'g' }).basis, 'per_100g');
+  eq('AO', 'AV-38: …both shortcuts are offered, package first',
+    quantityShortcuts(both.record).map((s) => s.label).join(' | '), '1 package (500 g) | 1 serving (30 g)');
+
+  /* ---- discrimination ---- */
+  // Pre-v2.2: rules 2 and 3 read the package only.
+  const packageOnly = (off) => (off.quantity ? 'resolves' : 'refuses');
+  check('AO', 'AV-38 DISCRIMINATES: package-only rules refuse the crackers; the fallback resolves them',
+    packageOnly({ quantity: null }) === 'refuses' && r.resolved);
+  // A fallback that lets the package win without checking agreement.
+  const packageWins = (off) => off.quantity?.unit ?? off.serving_size?.unit;
+  check('AO', 'AV-38 DISCRIMINATES: package-wins resolves "500 g" + "1 cup (240 mL)" as mass; the rule refuses',
+    packageWins({ quantity: { unit: 'g' }, serving_size: { unit: 'ml' } }) === 'g' && c.reason === 'BASIS_UNRESOLVED');
+  discrimination.push(['AV-38', 'rules 2/3 read the package only', 'categorical', 'refuses vs per_100g']);
+  discrimination.push(['AV-38', 'package wins without an agreement check', 'categorical', 'per_100g vs refused under rule 4']);
+}
+
+/* ================================================================== *
+ * AP — AV-39: the unit table, every row; commas
+ * ================================================================== */
+
+const TABLE = [
+  // [spelling, unit, kind]
+  ['g', 'g', 'mass'], ['gm', 'g', 'mass'], ['gram', 'g', 'mass'], ['grams', 'g', 'mass'],
+  ['kg', 'kg', 'mass'], ['kilogram', 'kg', 'mass'], ['kilograms', 'kg', 'mass'],
+  ['oz', 'oz', 'mass'], ['ounce', 'oz', 'mass'], ['ounces', 'oz', 'mass'],
+  ['lb', 'lb', 'mass'], ['lbs', 'lb', 'mass'], ['pound', 'lb', 'mass'], ['pounds', 'lb', 'mass'],
+  ['ml', 'ml', 'volume'], ['millilitre', 'ml', 'volume'], ['millilitres', 'ml', 'volume'],
+  ['milliliter', 'ml', 'volume'], ['milliliters', 'ml', 'volume'],
+  ['cl', 'cl', 'volume'], ['dl', 'dl', 'volume'],
+  ['l', 'l', 'volume'], ['litre', 'l', 'volume'], ['litres', 'l', 'volume'], ['liter', 'l', 'volume'], ['liters', 'l', 'volume'],
+  ['fl oz', 'fl oz', 'volume'], ['fl. oz', 'fl oz', 'volume'], ['floz', 'fl oz', 'volume'],
+  ['fluid ounce', 'fl oz', 'volume'], ['fluid ounces', 'fl oz', 'volume'],
+  ['cup', 'cup', 'volume'], ['cups', 'cup', 'volume'],
+  ['tbsp', 'tbsp', 'volume'], ['tablespoon', 'tbsp', 'volume'], ['tablespoons', 'tbsp', 'volume'],
+  ['tsp', 'tsp', 'volume'], ['teaspoon', 'tsp', 'volume'], ['teaspoons', 'tsp', 'volume'],
+];
+
+function suiteAP() {
+  for (const [spelling, unit, kind] of TABLE) {
+    for (const t of [`2 ${spelling}`, `2 ${spelling.toUpperCase()}`]) {
+      const r = readDeclared(t);
+      const expect = 2 * DECLARED_UNITS[unit].factor;
+      check('AP', `AV-39: "${t}" is ${kind}, ${expect} ${kind === 'mass' ? 'g' : 'ml'}`,
+        r?.kind === kind && Math.abs(r.value - expect) < TOL, JSON.stringify(r));
+    }
+  }
+  near('AP', 'AV-39: dl = 100 ml', readDeclared('10 dl')?.value, 1000);
+  near('AP', 'AV-39: fluid ounce is exact', readDeclared('1 fluid ounce')?.value, 29.5735295625);
+  eq('AP', 'AV-39: "12 fluid ounces" is never an ounce of mass', readDeclared('12 fluid ounces')?.kind, 'volume');
+
+  // Must-reject: a count, a bare number, and a unit not in the table.
+  for (const t of ['6 muffins', '4pcs', '16 servings', '10', '12 gummies', '500 mg', '1 loaf']) {
+    eq('AP', `AV-39: "${t}" has no figure and does not resolve`, readDeclared(t), null);
+  }
+  // Commas, in both directions.
+  eq('AP', 'AV-39: "1,5 kg" does not resolve', readDeclared('1,5 kg'), null);
+  eq('AP', 'AV-39: "1,500 g" does not resolve', readDeclared('1,500 g'), null);
+  eq('AP', 'AV-39: a comma figure beside a clean one still does not resolve', readDeclared('3 lb (1,361 g)'), null);
+
+  /* ---- discrimination ---- */
+  const stripCommas = (t) => Number(t.replace(/,/g, '').match(/[\d.]+/)[0]);
+  check('AP', 'AV-39 DISCRIMINATES: stripping commas reads "1,5 kg" as 15 kg; the rule refuses',
+    stripCommas('1,5 kg') === 15 && readDeclared('1,5 kg') === null);
+  check('AP', 'AV-39 DISCRIMINATES: a comma-as-decimal reader reads "1,500 g" as 1.5 g; the rule refuses',
+    Number('1,500'.replace(',', '.')) === 1.5 && readDeclared('1,500 g') === null);
+  check('AP', 'AV-39 DISCRIMINATES: the v2.1 list refused "680 gm"; the table reads it',
+    parsePackageV21('680 gm') === null && readDeclared('680 gm')?.value === 680);
+  discrimination.push(['AV-39', 'comma stripped ("1,5 kg")', 'categorical', '15 kg vs refused']);
+  discrimination.push(['AV-39', 'comma as decimal ("1,500 g")', 'categorical', '1.5 g vs refused']);
+  discrimination.push(['AV-39', 'spelling missing from the table', 'categorical', 'refuses vs resolves ("680 gm", "10 pounds", "10 dl")']);
+}
+
+/** The v2.1 unit list, for the discrimination above: g kg oz lb ml cl l fl oz. */
+const parsePackageV21 = (t) => {
+  const m = t.match(/(\d+(?:\.\d+)?)\s*(fl\.?\s*oz|oz|lbs?|kg|g|ml|cl|l)(?![a-z])/i);
+  return m ? m : null;
+};
+
+/* ================================================================== *
+ * AQ — AV-40: multipacks
+ * ================================================================== */
+
+function suiteAQ() {
+  const cans = resolveFromOFF(shapeOFF(product('10 x 222 mL', { categories_tags: ['en:sodas'] })));
+  eq('AQ', 'AV-40: "10 x 222 mL" resolves the kind from the item: volume', readDeclared('10 x 222 mL')?.kind, 'volume');
+  eq('AQ', 'AV-40: …the record\'s package value is one item, 222 ml', cans.record?.off.quantity.value, 222);
+  eq('AQ', 'AV-40: …basis per_100ml (rule 2)', scoreEntry(cans.record, { value: 222, unit: 'ml' }).basis, 'per_100ml');
+  const pkgShortcut = (raw) => {
+    const d = readDeclared(raw);
+    return quantityShortcuts({ off: { quantity: { value: d.value, unit: d.unit, label: d.label, pack: d.pack } } })[0];
+  };
+  eq('AQ', 'AV-40: …offers "1 of 10 (222 ml)"', quantityShortcuts(cans.record)[0]?.label, '1 of 10 (222 ml)');
+  eq('AQ', 'AV-40: "10 × 222 mL" (multiplication sign) reads the same', pkgShortcut('10 × 222 mL')?.label, '1 of 10 (222 ml)');
+  eq('AQ', 'AV-40: 2 of the pack resolve to 444 ml, never 2220', resolveShortcut(pkgShortcut('10 x 222 mL'), 2).value, 444);
+  eq('AQ', '§3.3: a single package reads "1 package (…)"', pkgShortcut('20 oz (567 g)')?.label, '1 package (567 g)');
+  eq('AQ', 'multipack: the item follows "N x", not a later pack total', pkgShortcut('6 x 12 fl oz (2.13 L)')?.label, '1 of 6 (12 fl oz)');
+
+  /* ---- discrimination ---- */
+  near('AQ', 'AV-40 DISCRIMINATES: multiplying offers 2220 ml, 10× the item', 10 * 222, 2220);
+  check('AQ', 'AV-40 DISCRIMINATES: metric-preferred picks the 2.13 L total over the 12 fl oz item',
+    readDeclared('12 fl oz (2.13 L)')?.value === 2130 && readDeclared('6 x 12 fl oz (2.13 L)')?.value !== 2130);
+  discrimination.push(['AV-40', 'the pack multiplied', (2220 - 222).toExponential(3), '2220 ml vs 222 ml — 10×']);
+}
+
 /* ---------------- run ---------------- */
 
-suiteAL(); suiteAM();
-const heads = { AL: 'SUITE AL — AV-35, dual-unit package strings', AM: 'SUITE AM — AV-36, per-serving fields' };
+suiteAL(); suiteAM(); suiteAN(); suiteAO(); suiteAP(); suiteAQ();
+const heads = { AL: 'SUITE AL — AV-35, dual-unit package strings', AM: 'SUITE AM — AV-36, per-serving fields',
+  AN: 'SUITE AN — AV-37, serving strings', AO: 'SUITE AO — AV-38, serving fallback and shortcut',
+  AP: 'SUITE AP — AV-39, the unit table', AQ: 'SUITE AQ — AV-40, multipacks' };
 for (const k of Object.keys(heads)) {
   console.log(`\n${heads[k]}`); console.log('='.repeat(heads[k].length));
   for (const l of results[k]) console.log(l);

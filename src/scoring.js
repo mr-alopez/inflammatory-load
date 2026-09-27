@@ -74,6 +74,24 @@ function toMl(value, unit) {
  * §3.3c — Source basis resolution
  * ------------------------------------------------------------------ */
 
+/**
+ * §3.3c rules 2 and 3 (v2.2): is the product sold by mass or by volume?
+ *
+ * The package quantity decides. If it is missing or did not resolve, the
+ * serving string decides instead — used ONLY for this, never to change the
+ * basis. If both resolved they must agree; disagreement is null, and rule 4
+ * refuses. Takes the record's `off` block, already read by src/declared.js.
+ *
+ * @returns 'mass' | 'volume' | null
+ */
+export function soldBy(off = {}) {
+  const kindOf = (q) => (q && Number.isFinite(q.value) ? (isVolumeUnit(q.unit) ? 'volume' : 'mass') : null);
+  const pkg = kindOf(off.quantity);
+  const serving = kindOf(off.serving_size);
+  if (pkg && serving && pkg !== serving) return null;
+  return pkg ?? serving;
+}
+
 export function resolveBasis(record) {
   // §3.3c MANUAL exception (B4): an entry with nothing to scale resolves
   // without a basis. Set by src/manual.js, never by a source record.
@@ -94,19 +112,21 @@ export function resolveBasis(record) {
       const off = record.off || {};
       const per = off.nutrition_data_per;
       const servingSize = off.serving_size;
-      const pkg = off.quantity;
 
       // Rule 1
       if (per === 'serving' && servingSize && Number.isFinite(servingSize.value)) {
         const parseable = servingSize.unit === 'g' || isVolumeUnit(servingSize.unit);
         if (parseable) return { basis: 'per_serving', provenance: 'DECLARED' };
       }
+      // Rules 2 and 3 key on whether the product is sold by mass or by volume:
+      // the package quantity, falling back to the serving string (v2.2).
+      const kind = soldBy(off);
       // Rule 2 — derives, does not read (§3.3c).
-      if (per === '100g' && pkg && isVolumeUnit(pkg.unit)) {
+      if (per === '100g' && kind === 'volume') {
         return { basis: 'per_100ml', provenance: 'DERIVED_RULE_2' };
       }
       // Rule 3
-      if (per === '100g' && pkg && !isVolumeUnit(pkg.unit)) {
+      if (per === '100g' && kind === 'mass') {
         return { basis: 'per_100g', provenance: 'DECLARED' };
       }
       // Rule 4 — does not resolve. per_100g is never a fallback.

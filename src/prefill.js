@@ -10,6 +10,8 @@
  * manual module records what the user changed.
  */
 
+import { readDeclared } from './declared.js';
+
 const FIELDS = [
   'added_sugar_g', 'sodium_mg', 'saturated_fat_g', 'fiber_g',
   'energy_kcal', 'protein_g', 'carbohydrate_g', 'fat_g',
@@ -32,22 +34,16 @@ const NEEDS = {
  * A declared serving size in the form the form wants: `{value, unit}` in g or ml.
  *
  * OFF writes servings as "1 slice (38 g)" or "1 can (355 ml)" far more often
- * than "38 g". The strict parser §3.3c uses reads only the latter, so it would
- * discard the gram figure most labels actually carry. This reads the
- * parenthetical too. It reads a DECLARED string; it does not estimate, and an
- * unparseable serving returns null so the form falls back to 100.
- *
- * Used for the form only — the user sees the mass and can change it. §3.3c's
- * scoring path is unchanged.
+ * than "38 g". Since v2.2 this is §3.3c's own reader (src/declared.js), so the
+ * form and rule 1 read the same serving from the same string. It reads a
+ * DECLARED string; it does not estimate, and a serving that does not resolve
+ * returns null so the form falls back to 100.
  */
 export function parseServing(text) {
-  if (typeof text !== 'string') return null;
-  const t = text.toLowerCase();
-  const plain = t.trim().match(/^([0-9]+(?:\.[0-9]+)?)\s*(g|ml)$/);
-  if (plain) return { value: Number(plain[1]), unit: plain[2] };
-  const paren = t.match(/\(\s*([0-9]+(?:\.[0-9]+)?)\s*(g|ml)\s*\)/);
-  if (paren) return { value: Number(paren[1]), unit: paren[2] };
-  return null;
+  // v2.2: the §3.3c reader, the same one rule 1 uses. Until v2.2 this module
+  // had its own parenthesis reader, which accepted strings rule 1 refused.
+  const r = readDeclared(text);
+  return r ? { value: r.value, unit: r.unit } : null;
 }
 
 /**

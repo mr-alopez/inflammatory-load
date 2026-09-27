@@ -225,6 +225,7 @@
       </label>
       <p class="muted" id="quantity-units-note" hidden></p>
       <button class="add" id="quantity-package" hidden></button>
+      <button class="add" id="quantity-serving" hidden></button>
       <p class="muted" id="quantity-preview"></p>
       <button class="add" id="quantity-confirm">Confirm and log</button>
       <button class="add secondary" data-back>Back</button>
@@ -351,9 +352,9 @@ import {
 import { requestSwap } from './src/swap.js';
 import { macroTotals, normalizeWindow } from './src/macros.js';
 import { dayMacroLinePolicy } from './src/store.js';
-import { scoreEntry, resolveVolumeDensity } from './src/scoring.js';
+import { scoreEntry, resolveVolumeDensity, soldBy } from './src/scoring.js';
 import { resolveFromOFF, resolveFromUSDA, parseAmount,
-  orderSearchResults, searchResultLabel } from './src/sources.js';
+  orderSearchResults, searchResultLabel, quantityShortcuts, resolveShortcut } from './src/sources.js';
 import { createManualRecord, saveProduct, recordFromSaved, ABSENT,
   readFormValue, findSavedForProduct } from './src/manual.js';
 import { buildEntry } from './src/entry.js';
@@ -1043,22 +1044,9 @@ async function useRaw(raw, source, prefill) {
   text($('quantity-product'), res.record.name ?? prefill.name ?? '');
   $('quantity-value').value = '';
   syncVolumeUnits(res.record);
-  $('quantity-unit').value = res.record.off?.quantity
-    && ['ml', 'l', 'cl', 'fl oz'].includes(res.record.off.quantity.unit)
+  $('quantity-unit').value = soldBy(res.record.off) === 'volume'
     && resolveVolumeDensity(res.record).density !== null ? 'ml' : 'g';
-
-  // §3.3 package shortcut, offered only where a net weight exists.
-  const pkg = res.record.off?.quantity;
-  const shortcut = $('quantity-package');
-  if (pkg && Number.isFinite(pkg.value)) {
-    shortcut.hidden = false;
-    text(shortcut, `Whole package — ${pkg.value} ${pkg.unit}`);
-    shortcut.onclick = () => {
-      $('quantity-value').value = String(pkg.value);
-      $('quantity-unit').value = ['ml', 'l', 'cl', 'fl oz'].includes(pkg.unit) ? 'ml' : 'g';
-      previewQuantity();
-    };
-  } else { shortcut.hidden = true; }
+  syncShortcuts(res.record);
 
   text($('quantity-preview'), '');
   step('add-quantity');
@@ -1070,7 +1058,39 @@ function currentQuantity() {
   // §3.3: "0.5", "1/3" and "1 1/2" are all valid. parseAmount returns null
   // rather than a guess, and the form refuses rather than rounding.
   const value = parseAmount($('quantity-value').value);
-  return value === null ? null : { value, unit: $('quantity-unit').value };
+  if (value === null) return null;
+  const unit = $('quantity-unit').value;
+  // A shortcut unit resolves to its declared g or ml BEFORE scoring (§3.3).
+  const sc = flow.shortcuts?.find((s) => `shortcut:${s.id}` === unit);
+  return sc ? resolveShortcut(sc, value) : { value, unit };
+}
+
+/**
+ * §3.3 (v2.2): the package, multipack and serving shortcuts. Each is a button
+ * that logs one, and an entry in the unit list so fractions and multiples work
+ * as for any unit. A shortcut stated in volume needs a density to score, so it
+ * is offered only where one resolves — the same test the volume units use.
+ */
+function syncShortcuts(record) {
+  const sel = $('quantity-unit');
+  for (const o of [...sel.options]) if (o.value.startsWith('shortcut:')) o.remove();
+  const volumeOk = !!record && resolveVolumeDensity(record).density !== null;
+  flow.shortcuts = (record ? quantityShortcuts(record) : [])
+    .filter((s) => s.unit === 'g' || volumeOk);
+  for (const id of ['package', 'serving']) {
+    const btn = $(`quantity-${id}`);
+    const sc = flow.shortcuts.find((s) => s.id === id);
+    btn.hidden = !sc;
+    if (!sc) continue;
+    text(btn, sc.label);
+    const opt = new Option(sc.unitText, `shortcut:${id}`);
+    sel.add(opt);
+    btn.onclick = () => {
+      $('quantity-value').value = '1';
+      sel.value = opt.value;
+      previewQuantity();
+    };
+  }
 }
 
 /**
@@ -1083,13 +1103,14 @@ function syncVolumeUnits(record) {
   const sel = $('quantity-unit');
   const resolves = !!record && resolveVolumeDensity(record).density !== null;
   for (const opt of sel.options) {
-    if (opt.value === 'g') continue;
+    if (opt.value === 'g' || opt.value.startsWith('shortcut:')) continue;
     opt.disabled = !resolves;
     opt.hidden = !resolves;
   }
   if (!resolves && sel.value !== 'g') sel.value = 'g';
   const note = $('quantity-units-note');
-  text(note, resolves ? '' : 'Grams only — no density is known for this product.');
+  // v2.2: not "Grams only" — a serving or package shortcut may still be offered.
+  text(note, resolves ? '' : 'No density is known for this product, so it can’t be entered by volume.');
   note.hidden = resolves;
 }
 
@@ -1270,8 +1291,8 @@ async function renderSaved(firstId = null) {
       flow.saved = s;
       text($('quantity-product'), s.name);
       $('quantity-value').value = String(s.record.manual?.serving_mass_g ?? '');
+      syncShortcuts(null);
       $('quantity-unit').value = 'g';
-      $('quantity-package').hidden = true;
       previewQuantity();
       step('add-quantity');
     });

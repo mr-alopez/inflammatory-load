@@ -119,6 +119,37 @@ for (const id of tabled) {
 console.log(`\n  note  no attribute table (non-creation, aggregate or storage vectors):`);
 console.log(`        ${untabled.join(' ')}`);
 
+/* ---------- DIRECTION 3: §6.9 against disclosures.js ---------- */
+
+/**
+ * v2.2: §6.9 says every error message is a literal in the spec, read from
+ * disclosures.js. Copy held in both places drifts unless something compares
+ * them, so the audit does: every row must equal the module's string, and every
+ * module string must have a row. Applies from v2.2; earlier specs have no §6.9.
+ */
+const s69 = doc.indexOf('### 6.9 Error messages');
+if (s69 >= 0) {
+  console.log('\nDIRECTION 3 — §6.9 error messages against src/disclosures.js');
+  const { MANUAL_ERROR_COPY, REMOVE_ERROR_COPY, COMBO_ERROR_COPY } =
+    await import(new URL('../src/disclosures.js', import.meta.url));
+  const section = doc.slice(s69, doc.indexOf('\n## ', s69));
+  const ROW = /^\| (Manual entry|Removal|Combo) \| `([A-Z0-9_]+)` \| (.*) \|$/gm;
+  const rows = [...section.matchAll(ROW)].map((m) => ({ where: m[1], code: m[2], text: m[3].replace(/\\\|/g, '|') }));
+  const modules = { 'Manual entry': MANUAL_ERROR_COPY, Removal: REMOVE_ERROR_COPY, Combo: COMBO_ERROR_COPY };
+  // The row pattern, judged: a real row is read, a prose line is not.
+  line([...'| Removal | `NO_SUCH_ENTRY` | Gone. |'.matchAll(ROW)].length === 1
+    && [...'Removal: `NO_SUCH_ENTRY` is gone.'.matchAll(ROW)].length === 0,
+    'the §6.9 row pattern separates a table row from prose');
+  for (const [where, copy] of Object.entries(modules)) {
+    for (const [code, text] of Object.entries(copy)) {
+      const row = rows.find((r) => r.where === where && r.code === code);
+      line(row?.text === text, `§6.9 ${where} ${code}${!row ? ' — no row in the spec' : row.text !== text ? ' — spec and module differ' : ''}`);
+    }
+  }
+  const extra = rows.filter((r) => modules[r.where]?.[r.code] === undefined);
+  line(extra.length === 0, `no §6.9 row without a module string${extra.length ? ` — ${extra.map((r) => r.code).join(', ')}` : ''}`);
+}
+
 /* ---------- result ---------- */
 
 console.log(`\n${'-'.repeat(64)}`);

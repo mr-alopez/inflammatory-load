@@ -8,9 +8,11 @@
  * No LLM anywhere (§8.3). Nothing is inferred from product identity or name.
  */
 
-import { DENSITY_MAP, VOLUME_UNITS } from './coefficients.js';
+import { DENSITY_MAP } from './coefficients.js';
 import { categoryFromTags, categoryFromUSDA, CATMAP_VERSION } from './category-map.js';
 import { prefillFromRefusal } from './prefill.js';
+import { readDeclared } from './declared.js';
+import { resolveBasis, soldBy } from './scoring.js';
 
 export const SOURCE_REJECT = {
   DATASET_NOT_ELIGIBLE: 'DATASET_NOT_ELIGIBLE',       // §8.2 USDA Branded
@@ -36,9 +38,9 @@ const refuse = (reason, detail, prefill = null) =>
  * ------------------------------------------------------------------ */
 
 /**
- * Parse a declared quantity string ("355 ml", "52.7 g") into value + unit.
- * This reads a declared field. It does not infer: an unparseable string
- * returns null and the caller refuses rather than guessing.
+ * The strict reader used before v2.1: a bare "<number> <unit>" only. No longer
+ * on any resolution path — src/declared.js reads both declared strings — and
+ * kept because AV-35's discrimination exercises it as the pre-v2.1 defect.
  */
 export function parseQuantity(text) {
   if (typeof text !== 'string') return null;
@@ -49,54 +51,11 @@ export function parseQuantity(text) {
 }
 
 /**
- * §3.3c (v2.1): read a declared PACKAGE quantity — possibly carrying several
- * figures — to decide whether the product is sold by mass or by volume.
- *
- * US packages read "20 oz (567 g)" or "12 fl oz (355 mL)". The strict reader
- * above accepts only "567 g", so those refused under rule 4: about 140 of a
- * 300-product US sample, five times as many as refused on flour. Every figure
- * is now read, and the quantity resolves only if all of them agree.
- *
- *   - `fl oz` is matched BEFORE `oz`, so a fluid ounce is never read as a mass.
- *   - A number preceded by a digit, point or comma is not a figure's start, so
- *     "1,5 kg" is not read as "5 kg" and "1,000 g" is read as 1000.
- *   - A metric figure, where present, supplies the net quantity; otherwise the
- *     first imperial figure is converted exactly.
- *
- * Read, never interpreted: nothing comes from the name or category (§8.3).
- *
- * @returns { value, unit: 'g'|'ml', kind: 'mass'|'volume' } or null
+ * §3.3c (v2.2): the package quantity and the serving size are read by ONE
+ * reader, src/declared.js. `parsePackage` is kept as its name on the package
+ * side, where AV-35 and the tests call it.
  */
-const PACKAGE_UNITS = {
-  'fl oz': { kind: 'volume', factor: 29.5735295625, metric: false },
-  oz: { kind: 'mass', factor: 28.349523125, metric: false },
-  lb: { kind: 'mass', factor: 453.59237, metric: false },
-  kg: { kind: 'mass', factor: 1000, metric: true },
-  g: { kind: 'mass', factor: 1, metric: true },
-  ml: { kind: 'volume', factor: 1, metric: true },
-  cl: { kind: 'volume', factor: 10, metric: true },
-  l: { kind: 'volume', factor: 1000, metric: true },
-};
-const PACKAGE_FIGURE =
-  /(?<![\d.,])(\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?)\s*(fl\.?\s*oz|oz|lbs?|kg|g|ml|cl|l)(?![a-z])/gi;
-
-export function parsePackage(text) {
-  if (typeof text !== 'string') return null;
-  const figures = [...text.matchAll(PACKAGE_FIGURE)].map((m) => {
-    let unit = m[2].toLowerCase().replace(/\s+/g, ' ').replace('fl. oz', 'fl oz').replace('fl.oz', 'fl oz');
-    if (unit === 'floz') unit = 'fl oz';
-    if (unit === 'lbs') unit = 'lb';
-    return { value: Number(m[1].replace(/,/g, '')), unit, ...PACKAGE_UNITS[unit] };
-  }).filter((f) => f.kind && Number.isFinite(f.value) && f.value > 0);
-
-  if (figures.length === 0) return null;
-  const kinds = new Set(figures.map((f) => f.kind));
-  if (kinds.size !== 1) return null;                     // the figures disagree: rule 4
-
-  const pick = figures.find((f) => f.metric) ?? figures[0];
-  const kind = figures[0].kind;
-  return { value: pick.value * pick.factor, unit: kind === 'mass' ? 'g' : 'ml', kind };
-}
+export { readDeclared as parsePackage } from './declared.js';
 
 /**
  * §3.3: a user-entered amount. Accepts a decimal, a vulgar fraction, or a mixed
@@ -173,12 +132,15 @@ export function resolveGrainMajority(ingredients = []) {
 export function resolveFromOFF(raw) {
   if (!raw) return refuse(SOURCE_REJECT.NOT_FOUND, 'no OFF record');
 
-  const servingSize = parseQuantity(raw.serving_size);
-  // §3.3c (v2.1): every figure in the package string is read; see parsePackage.
-  const pkg = parsePackage(raw.quantity);
-  const packageQty = pkg ? { value: pkg.value, unit: pkg.unit } : null;
+  // §3.3c (v2.2): both declared strings are read by the same rule. Rule 1 reads
+  // the serving; rules 2 and 3 read the package, falling back to the serving.
+  // `label` is the declared figure a shortcut shows; `pack` is N of a multipack.
+  const serving = readDeclared(raw.serving_size);
+  const servingSize = serving ? { value: serving.value, unit: serving.unit, label: serving.label } : null;
+  const pkg = readDeclared(raw.quantity);
+  const packageQty = pkg ? { value: pkg.value, unit: pkg.unit, label: pkg.label, pack: pkg.pack } : null;
   const grainMajority = resolveGrainMajority(raw.ingredients);
-  const isLiquid = !!(packageQty && VOLUME_UNITS.includes(packageQty.unit));
+  const isLiquid = soldBy({ quantity: packageQty, serving_size: servingSize }) === 'volume';
   const densityClass = raw.density_class ?? null;
 
   /**
@@ -228,10 +190,11 @@ export function resolveFromOFF(raw) {
    * form (AV-32). The basis is the more fundamental failure, and the one the
    * no-prefill rule keys on, so it is reported first.
    */
-  if (basisWouldNotResolve(record)) {
+  // The scorer's own rule, so the resolver and the scorer cannot disagree.
+  if (resolveBasis(record).basis === null) {
     return refuse(
       SOURCE_REJECT.BASIS_UNRESOLVED,
-      'nutrition_data_per absent or unparseable serving_size; per_100g is never a fallback (§3.3c rule 4)'
+      'nutrition_data_per absent, or no declared quantity settles the basis; per_100g is never a fallback (§3.3c rule 4)'
     );
   }
 
@@ -254,13 +217,6 @@ export function resolveFromOFF(raw) {
     );
   }
   return { resolved: true, record };
-}
-
-function basisWouldNotResolve(record) {
-  const { nutrition_data_per: per, serving_size: ss, quantity: q } = record.off;
-  if (per === 'serving' && ss) return false;
-  if (per === '100g' && q) return false;
-  return true;
 }
 
 function classificationsFromOFF(raw, grainMajority) {
@@ -368,6 +324,40 @@ export function resolveFromUSDA(raw) {
   }
   return result;
 }
+
+/* ------------------------------------------------------------------ *
+ * §3.3 — quantity shortcuts
+ * ------------------------------------------------------------------ */
+
+/**
+ * §3.3 (v2.2): the shortcuts a resolved record offers, package first.
+ *
+ *   package    `1 package (567 g)` — where a net weight exists.
+ *   multipack  `1 of 10 (222 ml)` — ONE item; the pack total is never offered.
+ *   serving    `1 serving (30 g)` — where a serving mass or volume is declared.
+ *
+ * Each label shows the declared figure, so the user sees the quantity being
+ * logged. `unitText` is the same label without its leading "1 ", for the unit
+ * list, so "2" and "1/2" read as "2 of 10 (222 ml)" or "1/2 package (567 g)".
+ * Each resolves to `{value, unit}` in g or ml before scoring (resolveShortcut).
+ */
+export function quantityShortcuts(record) {
+  const out = [];
+  const pkg = record?.off?.quantity;
+  if (pkg && Number.isFinite(pkg.value) && pkg.label) {
+    const label = pkg.pack ? `1 of ${pkg.pack} (${pkg.label})` : `1 package (${pkg.label})`;
+    out.push({ id: 'package', label, unitText: label.slice(2), value: pkg.value, unit: pkg.unit });
+  }
+  const ss = record?.off?.serving_size;
+  if (ss && Number.isFinite(ss.value) && ss.label) {
+    const label = `1 serving (${ss.label})`;
+    out.push({ id: 'serving', label, unitText: label.slice(2), value: ss.value, unit: ss.unit });
+  }
+  return out;
+}
+
+/** A shortcut amount (1, 1/2, 2) resolved to the declared quantity it stands for. */
+export const resolveShortcut = (shortcut, amount) => ({ value: amount * shortcut.value, unit: shortcut.unit });
 
 /* ------------------------------------------------------------------ *
  * §8.1 — search result order and labelling
