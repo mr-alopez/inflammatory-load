@@ -82,7 +82,8 @@ function suiteU() {
   check('U', 'AV-3: a suggestion is returned', result.status === SWAP.SUGGESTION, result.status);
   near('U', 'AV-3: REFERENCE_MASS = 120 g', result.reference_mass, 120);
   near('U', 'AV-3: candidate score at 120 g', result.candidate.score, -1.57144);
-  near('U', 'AV-3: delta', result.delta, 4.56 - -1.57144);
+  // COEFF-2 (v2.3): AV-1 scores 3.8505, so the delta is 5.42194 (was 6.13144).
+  near('U', 'AV-3: delta', result.delta, 3.8505 - -1.57144);
 
   // The selection rule AV-3 exists to pin: delta_driver_in is chosen by GAIN,
   // not by the candidate's largest absolute attribute.

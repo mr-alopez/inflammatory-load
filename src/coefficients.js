@@ -3,7 +3,13 @@
  * Data only. No logic, no I/O.
  */
 
-export const COEFF_VERSION = 'COEFF-1';
+/**
+ * COEFF-2 (v2.3): P5's serving is a fixed 100 g (liquids 100 ml) for every
+ * product; under COEFF-1 a labelled serving set it. Every other coefficient and
+ * serving mass is unchanged. Entries keep the version they were scored under
+ * (§8.4), and §6.3a marks a window that spans both.
+ */
+export const COEFF_VERSION = 'COEFF-2';
 
 /** §2.1 / §2.2. `per` is the denominator of the coefficient unit. */
 export const ATTRIBUTES = {
@@ -16,7 +22,7 @@ export const ATTRIBUTES = {
   // --- classification-sourced (§2.3) ---
   P3: { kind: 'alcohol', coeff: +2.0, name: 'Alcohol' , displayName: "alcohol"},
   P4: { kind: 'classification', servingMassG: 30, coeff: +1.0, name: 'Refined grain' , displayName: "refined grain"},
-  // P5's serving mass is per-product (§3.3): labeled serving, else 100 g.
+  // P5's serving is fixed (§3.3, COEFF-2): 100 g, or 100 ml converted.
   P5: { kind: 'classification', servingMassG: null, coeff: +1.5, name: 'Ultra-processed (NOVA 4)' , displayName: "ultra-processed"},
   P6: { kind: 'classification', servingMassG: 50, coeff: +2.0, name: 'Processed meat' , displayName: "processed meat"},
   P7: { kind: 'classification', servingMassG: 100, coeff: +1.5, name: 'Deep-fried preparation' , displayName: "deep-fried"},
@@ -58,9 +64,9 @@ export const ALCOHOL_FALLBACK_UNITS = {
   spirits: { fl_oz: 1.5, units: 1.0 },
 };
 
-/** §3.3 — P5 serving mass when the product carries no labeled serving. */
-export const P5_UNLABELED_SERVING_MASS_G = 100;
-export const P5_UNLABELED_SERVING_VOLUME_ML = 100;
+/** §3.3 (COEFF-2) — P5's fixed serving, for every product. */
+export const P5_SERVING_MASS_G = 100;
+export const P5_SERVING_VOLUME_ML = 100;
 
 export const VOLUME_UNITS = ['ml', 'l', 'cl', 'fl oz'];
 export const MASS_UNITS = ['g', 'kg', 'mg', 'oz', 'lb'];

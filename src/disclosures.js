@@ -165,6 +165,14 @@ export const REMOVE_ERROR_COPY = {
   ERROR: 'This entry couldn’t be removed.',
 };
 
+/**
+ * §6.10 (v2.3): form notes — short statements a form shows about what it can
+ * accept for this product. Literal in the spec, read from here.
+ */
+export const FORM_NOTES = {
+  NO_DENSITY: 'No density is known for this product, so it can’t be entered by volume.',
+};
+
 export const COMBO_ERROR_COPY = {
   COMBO_COMPONENT_FAILED: 'Nothing was logged. {name} can no longer be scored — edit the combo to replace it.',
   ENTRY_EXISTS: 'Nothing was logged. Tap the combo again.',

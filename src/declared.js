@@ -1,8 +1,8 @@
 /**
  * §3.3c (v2.2): reading a declared quantity.
  *
- * ONE reader for both declared strings: the package `quantity` (rules 2 and 3,
- * and the package shortcut) and `serving_size` (rule 1, the rule 2/3 fallback,
+ * ONE reader for both declared strings: the package `quantity` (rules 3 and 4,
+ * and the package shortcut) and `serving_size` (rule 1, the rule 3/4 fallback,
  * the P5 labelled serving and the serving shortcut). Until v2.2 there were
  * three readers of these strings — a strict one in sources.js, the package
  * reader, and a parenthesis reader in prefill.js — and they disagreed: the
@@ -87,12 +87,39 @@ function figureValue(t) {
   return Number(t);
 }
 
+/** A parenthesis depth at each index, so a figure knows whether it sits in one. */
+function depthAt(text) {
+  const d = new Array(text.length + 1).fill(0);
+  let depth = 0;
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === '(' || text[i] === '[') depth++;
+    d[i] = depth;
+    if ((text[i] === ')' || text[i] === ']') && depth > 0) depth--;
+  }
+  return d;
+}
+
+const result = (pick, pack, density = null) => ({
+  value: pick.value * pick.factor,
+  unit: pick.kind === 'mass' ? 'g' : 'ml',
+  kind: pick.kind,
+  label: `${pick.raw} ${pick.display}`,
+  // The declared figure in its own unit, for a shortcut entry's display (§6.1b).
+  size: { value: pick.value, unit: pick.display },
+  pack,
+  density,
+});
+
 /**
- * @returns {{ value, unit: 'g'|'ml', kind: 'mass'|'volume', label, pack }} or null.
+ * @param text     the declared string
+ * @param serving  true for `serving_size`, where the US label convention applies
+ * @returns {{ value, unit: 'g'|'ml', kind, label, size, pack, density }} or null.
  *   `value` is in grams or millilitres. `label` is the chosen figure as declared,
  *   e.g. "567 g" or "16 oz". `pack` is N for an `N x M unit` string, else null.
+ *   `density` is `{ mass_g, volume_ml }` where a serving string pairs a household
+ *   volume with a metric mass (or the reverse), else null.
  */
-export function readDeclared(text) {
+export function readDeclared(text, { serving = false } = {}) {
   if (typeof text !== 'string') return null;
   // A vulgar-fraction character is a fraction, not a word: "1 ½ cup" is 1 1/2
   // cups. Unread, the cup would vanish and "1 ½ cup (39 g)" would resolve as
@@ -105,19 +132,40 @@ export function readDeclared(text) {
     const value = figureValue(m[1].replace(/\s+/g, ' ').trim());
     if (!u || !Number.isFinite(value) || value <= 0) continue;
     const packMatch = text.slice(0, m.index).match(MULTIPACK);
-    figures.push({ raw: m[1].replace(/\s+/g, ' ').trim(), value, ...u, pack: packMatch ? Number(packMatch[1]) : null });
+    figures.push({ raw: m[1].replace(/\s+/g, ' ').trim(), value, ...u, pack: packMatch ? Number(packMatch[1]) : null, at: m.index });
   }
   if (figures.length === 0) return null;
-  if (new Set(figures.map((f) => f.kind)).size !== 1) return null;   // they disagree: rule 4
+
+  /**
+   * v2.3: a serving string `{household measure} ({metric figure})` follows the US
+   * label convention (21 CFR 101.9(b)(7)). The parenthesised metric figure IS the
+   * serving and alone decides mass versus volume; the household measure describes
+   * the same serving, so it cannot contradict it. A volume/mass pair is a declared
+   * density (§3.3a step 1). Applies only with exactly one metric figure, inside
+   * parentheses, after every household figure — anything else falls through to
+   * the agreement rule below.
+   */
+  if (serving) {
+    const depth = depthAt(text);
+    const metric = figures.filter((f) => f.metric);
+    const household = figures.filter((f) => !f.metric);
+    const [m] = metric;
+    if (metric.length === 1 && depth[m.at] > 0 && household.every((h) => depth[h.at] === 0 && h.at < m.at)) {
+      let density = null;
+      if (household.length === 1 && household[0].kind !== m.kind) {
+        const h = household[0];
+        const amount = (f) => f.value * f.factor;
+        density = m.kind === 'mass'
+          ? { mass_g: amount(m), volume_ml: amount(h) }
+          : { mass_g: amount(h), volume_ml: amount(m) };
+      }
+      return result(m, null, density);
+    }
+  }
+  if (new Set(figures.map((f) => f.kind)).size !== 1) return null;   // they disagree: rule 5
 
   // A multipack's value is the item that follows "N x", never the pack total.
   const first = figures[0];
   const pick = first.pack ? first : (figures.find((f) => f.metric) ?? first);
-  return {
-    value: pick.value * pick.factor,
-    unit: pick.kind === 'mass' ? 'g' : 'ml',
-    kind: pick.kind,
-    label: `${pick.raw} ${pick.display}`,
-    pack: first.pack && first.pack > 1 ? first.pack : null,
-  };
+  return result(pick, first.pack && first.pack > 1 ? first.pack : null);
 }

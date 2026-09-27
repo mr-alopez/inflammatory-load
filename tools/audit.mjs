@@ -130,7 +130,7 @@ console.log(`        ${untabled.join(' ')}`);
 const s69 = doc.indexOf('### 6.9 Error messages');
 if (s69 >= 0) {
   console.log('\nDIRECTION 3 — §6.9 error messages against src/disclosures.js');
-  const { MANUAL_ERROR_COPY, REMOVE_ERROR_COPY, COMBO_ERROR_COPY } =
+  const { MANUAL_ERROR_COPY, REMOVE_ERROR_COPY, COMBO_ERROR_COPY, FORM_NOTES } =
     await import(new URL('../src/disclosures.js', import.meta.url));
   const section = doc.slice(s69, doc.indexOf('\n## ', s69));
   const ROW = /^\| (Manual entry|Removal|Combo) \| `([A-Z0-9_]+)` \| (.*) \|$/gm;
@@ -148,6 +148,22 @@ if (s69 >= 0) {
   }
   const extra = rows.filter((r) => modules[r.where]?.[r.code] === undefined);
   line(extra.length === 0, `no §6.9 row without a module string${extra.length ? ` — ${extra.map((r) => r.code).join(', ')}` : ''}`);
+
+  // v2.3: §6.10 form notes, the same way.
+  const s610 = doc.indexOf('### 6.10 Form notes');
+  if (s610 >= 0 && FORM_NOTES) {
+    const sec = doc.slice(s610, doc.indexOf('\n## ', s610));
+    const NOTE = /^\| `([A-Z0-9_]+)` \| (.*) \|$/gm;
+    line([...'| `NO_DENSITY` | A note. |'.matchAll(NOTE)].length === 1
+      && [...'The `NO_DENSITY` note is a note.'.matchAll(NOTE)].length === 0,
+      'the §6.10 row pattern separates a table row from prose');
+    const notes = [...sec.matchAll(NOTE)].map((m) => ({ code: m[1], text: m[2] }));
+    for (const [code, text] of Object.entries(FORM_NOTES)) {
+      const row = notes.find((n) => n.code === code);
+      line(row?.text === text, `§6.10 ${code}${!row ? ' — no row in the spec' : row.text !== text ? ' — spec and module differ' : ''}`);
+    }
+    line(notes.every((n) => FORM_NOTES[n.code] !== undefined), 'no §6.10 row without a module string');
+  }
 }
 
 /* ---------- result ---------- */

@@ -339,10 +339,23 @@ export function formatAmount(value) {
   return String(Number(value.toFixed(2)));
 }
 
-/** `12 fl oz`, `1/3 tbsp`, `100 g` — the quantity as the user entered it (§3.3). */
+/**
+ * `12 fl oz`, `1/3 tbsp`, `100 g` — the quantity as the user entered it (§3.3).
+ *
+ * §6.1b (v2.3): a shortcut entry renders the shortcut, with its declared size
+ * times the multiple: `2 servings (60 g)`, `1 package (567 g)`,
+ * `1 of 10 (222 ml)`, `1/2 serving (15 g)`. The noun is plural only above one.
+ */
 export function quantityAsEntered(entry) {
   const amount = formatAmount(entry.quantity_value);
-  return amount === null ? null : `${amount} ${entry.quantity_unit}`;
+  if (amount === null) return null;
+  const sc = entry.quantity_shortcut;
+  if (!sc) return `${amount} ${entry.quantity_unit}`;
+  const size = formatAmount(entry.quantity_value * sc.size_value);
+  const paren = `(${size} ${sc.size_unit})`;
+  if (entry.quantity_unit === 'item') return `${amount} of ${sc.pack} ${paren}`;
+  const noun = entry.quantity_value > 1 ? `${entry.quantity_unit}s` : entry.quantity_unit;
+  return `${amount} ${noun} ${paren}`;
 }
 
 /* ------------------------------------------------------------------ *

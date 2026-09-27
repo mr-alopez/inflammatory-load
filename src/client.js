@@ -30,7 +30,7 @@ const USDA_ELIGIBLE = 'Foundation,SR%20Legacy';
 
 const OFF_FIELDS = [
   'code', 'product_name', 'brands', 'quantity', 'serving_size', 'nutrition_data_per',
-  'nova_group', 'nutriments', 'categories_tags', 'ingredients',
+  'nova_group', 'nutriments', 'categories_tags', 'ingredients', 'ingredients_text',
 ].join(',');
 
 async function getJson(url) {
@@ -70,7 +70,7 @@ export function shapeOFF(p) {
    * which is why it was fixed now: entries are immutable, so the first live
    * instance would have been unrepairable.
    *
-   * A record whose serving does not parse refuses under rule 4 regardless, so
+   * A record whose serving does not parse refuses under rule 5 regardless, so
    * keying on `nutrition_data_per` alone is equivalent to keying on the basis.
    */
   const perServing = p.nutrition_data_per === 'serving';
@@ -85,6 +85,9 @@ export function shapeOFF(p) {
     serving_size: p.serving_size ?? null,
     nova_group: p.nova_group ?? null,
     ingredients: p.ingredients ?? [],
+    // §3.1 (v2.3): the raw text, for the declared-bound rule only. The parsed
+    // list drops "2% or less" clauses, which is what the rule reads.
+    ingredients_text: p.ingredients_text ?? null,
     categories_tags: tags,
     // DMAP-2 (J6): both lookups read declared tags via the versioned data file.
     density_class: classifyLiquid(tags),

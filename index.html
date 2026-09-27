@@ -354,7 +354,7 @@ import { macroTotals, normalizeWindow } from './src/macros.js';
 import { dayMacroLinePolicy } from './src/store.js';
 import { scoreEntry, resolveVolumeDensity, soldBy } from './src/scoring.js';
 import { resolveFromOFF, resolveFromUSDA, parseAmount,
-  orderSearchResults, searchResultLabel, quantityShortcuts, resolveShortcut } from './src/sources.js';
+  orderSearchResults, searchResultLabel, quantityShortcuts, enteredShortcut } from './src/sources.js';
 import { createManualRecord, saveProduct, recordFromSaved, ABSENT,
   readFormValue, findSavedForProduct } from './src/manual.js';
 import { buildEntry } from './src/entry.js';
@@ -1060,9 +1060,10 @@ function currentQuantity() {
   const value = parseAmount($('quantity-value').value);
   if (value === null) return null;
   const unit = $('quantity-unit').value;
-  // A shortcut unit resolves to its declared g or ml BEFORE scoring (§3.3).
+  // A shortcut is stored as entered (§6.1b) and resolves to g or ml when
+  // scored (§3.3) — scoreEntry does that from the carried declared size.
   const sc = flow.shortcuts?.find((s) => `shortcut:${s.id}` === unit);
-  return sc ? resolveShortcut(sc, value) : { value, unit };
+  return sc ? enteredShortcut(sc, value) : { value, unit };
 }
 
 /**
@@ -1109,8 +1110,8 @@ function syncVolumeUnits(record) {
   }
   if (!resolves && sel.value !== 'g') sel.value = 'g';
   const note = $('quantity-units-note');
-  // v2.2: not "Grams only" — a serving or package shortcut may still be offered.
-  text(note, resolves ? '' : 'No density is known for this product, so it can’t be entered by volume.');
+  // §6.10: not "Grams only" — a serving or package shortcut may still be offered.
+  text(note, resolves ? '' : DISC.FORM_NOTES.NO_DENSITY);
   note.hidden = resolves;
 }
 

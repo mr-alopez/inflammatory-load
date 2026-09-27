@@ -56,6 +56,8 @@ export function buildEntry(scored, record, meta) {
     quantity_value: meta.quantity.value,
     quantity_unit: meta.quantity.unit,
     quantity_g: scored.quantity_g,
+    // §6.1b (SCHEMA-6): present only when the quantity was entered as a shortcut.
+    ...(meta.quantity.shortcut ? { quantity_shortcut: { ...meta.quantity.shortcut } } : {}),
     density_used: scored.density,
     density_provenance: scored.densityProvenance,
     // §3.3a: the class that selected the density, for DMAP-1 and for BDMAP-1's

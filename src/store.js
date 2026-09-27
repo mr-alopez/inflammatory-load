@@ -215,7 +215,11 @@ export function buildCombo({ combo_id, name, components }) {
     components: components.map((c) => ({
       food_name: c.food_name,
       product_id: c.product_id ?? c.record.product_id ?? `local:${c.food_name}`,
-      quantity: { value: c.quantity.value, unit: c.quantity.unit },
+      // A shortcut quantity keeps its declared size, so the component logs and
+      // displays as entered (§6.1b) every time the combo is used.
+      quantity: c.quantity.shortcut
+        ? { value: c.quantity.value, unit: c.quantity.unit, shortcut: { ...c.quantity.shortcut } }
+        : { value: c.quantity.value, unit: c.quantity.unit },
       occasion_category: c.occasion_category ?? c.record.occasion_category ?? 'UNCATEGORIZED',
       category_map_version: c.category_map_version ?? c.record.category_map_version ?? 'CATMAP-1',
       record: c.record,
@@ -377,6 +381,17 @@ export function migrateEntryV4toV5(v4Entry) {
   return deepFreeze(migrated);
 }
 
+/**
+ * SCHEMA-5 → SCHEMA-6 (§6.1b, v2.3). Adds no key: `quantity_shortcut` is
+ * present only on an entry logged through a shortcut, and no earlier entry was.
+ * Stamps the literal 6 (§8.6).
+ */
+export function migrateEntryV5toV6(v5Entry) {
+  const migrated = deepClone(v5Entry);
+  migrated.schema_version = 6;
+  return deepFreeze(migrated);
+}
+
 export async function migrateStore(backend) {
   const from = (await backend.get(STORES.META, META_KEYS.SCHEMA_VERSION)) ?? 1;
   if (from >= SCHEMA_VERSION) return { migrated: 0, from, to: SCHEMA_VERSION };
@@ -388,6 +403,7 @@ export async function migrateStore(backend) {
     if ((m.schema_version ?? 2) < 3) m = migrateEntryV2toV3(m);
     if ((m.schema_version ?? 3) < 4) m = migrateEntryV3toV4(m);
     if ((m.schema_version ?? 4) < 5) m = migrateEntryV4toV5(m);
+    if ((m.schema_version ?? 5) < 6) m = migrateEntryV5toV6(m);
     await backend.put(STORES.ENTRIES, e.entry_id, m);
   }
   await backend.put(STORES.META, META_KEYS.SCHEMA_VERSION, SCHEMA_VERSION);

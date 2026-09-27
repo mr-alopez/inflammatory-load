@@ -4,7 +4,7 @@
  * Field definitions and immutability classes. Data only, no logic.
  */
 
-export const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 6;
 
 export const STORES = {
   ENTRIES: 'entries',
@@ -43,7 +43,8 @@ export const ENTRY_FIELDS = {
 
   quantity_value:           { immutable: true, required: true },
   // §3.3: the unit AS ENTERED. quantity_g remains the single canonical quantity.
-  quantity_unit:            { immutable: true, required: true, enum: ['g', 'ml', 'fl oz', 'cup', 'tbsp'] },
+  // SCHEMA-6 adds the shortcut units (§6.1b): 'serving', 'package', 'item'.
+  quantity_unit:            { immutable: true, required: true, enum: ['g', 'ml', 'fl oz', 'cup', 'tbsp', 'serving', 'package', 'item'] },
   quantity_g:               { immutable: true, nullable: true },
 
   density_used:             { immutable: true, nullable: true },
@@ -87,6 +88,12 @@ export const ENTRY_FIELDS = {
   prefilled_from:           { immutable: true, nullable: true },
   prefill_changed:          { immutable: true, nullable: true },
 
+  // SCHEMA-6 (§6.1b, v2.3). Present only on an entry logged through a shortcut:
+  // the declared size in its own unit (`size_value`, `size_unit`), the size in
+  // g or ml (`value`, `unit`), and N of a multipack. `quantity_value` is the
+  // multiple. Absent otherwise — absence reads as "not a shortcut".
+  quantity_shortcut:        { immutable: true, nullable: true },
+
   schema_version:           { immutable: true, required: true },
 };
 
@@ -95,6 +102,9 @@ export const SCHEMA_4_ADDED_FIELDS = ['combo_id', 'combo_name'];
 
 /** §8.5 (v2.0). Present only on a prefilled manual entry. */
 export const SCHEMA_5_ADDED_FIELDS = ['prefilled_from', 'prefill_changed'];
+
+/** §6.1b (v2.3). Present only on an entry logged through a shortcut. */
+export const SCHEMA_6_ADDED_FIELDS = ['quantity_shortcut'];
 
 /**
  * Fields a SCHEMA-1 → SCHEMA-2 migration adds (§8.6). Existing entries take

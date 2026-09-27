@@ -3,7 +3,7 @@
  *
  * Suites:
  *   D. Vectors AV-7a, AV-11, AV-12, AV-13
- *   E. §3.3c rule 2 traceability (reported separately)
+ *   E. §3.3c rule 3 traceability (reported separately)
  *   F. §8.5a saved-product snapshot immutability (reported separately)
  *   G. §8.2 eligibility, §8.5 manual entry, §8.5a local-only
  */
@@ -42,14 +42,14 @@ function throws(suite, label, fn, code) {
   }
 }
 
-/* ---------- shared OFF record shape for AV-11/12/13 (rule 3) ---------- */
+/* ---------- shared OFF record shape for AV-11/12/13 (rule 4) ---------- */
 
 function offPer100g({ code, sodium_mg, fiber_g, protein_g }) {
   return {
     code,
     product_name: 'Test product',
     nutrition_data_per: '100g',
-    quantity: '200 g',              // mass unit → §3.3c rule 3, provenance DECLARED
+    quantity: '200 g',              // mass unit → §3.3c rule 4, provenance DECLARED
     serving_size: null,
     nova_group: null,
     ingredients: [],
@@ -102,7 +102,7 @@ function suiteD() {
   const av11 = resolveFromOFF(offPer100g({ code: '11', sodium_mg: null, fiber_g: 5.0, protein_g: 10 }));
   check('D', 'AV-11: resolved', av11.resolved === true);
   const r11 = scoreEntry(av11.record, { value: 100, unit: 'g' });
-  check('D', 'AV-11: basis per_100g via rule 3', r11.basis === 'per_100g');
+  check('D', 'AV-11: basis per_100g via rule 4', r11.basis === 'per_100g');
   check('D', 'AV-11: provenance DECLARED', r11.basisProvenance === 'DECLARED');
   near('D', 'AV-11: SCORE', r11.score, -0.7);
   check('D', 'AV-11: INCOMPLETE on sodium only',
@@ -129,7 +129,7 @@ function suiteD() {
 }
 
 /* ================================================================== *
- * SUITE E — rule 2 traceability (reported separately)
+ * SUITE E — rule 3 traceability (reported separately)
  * ================================================================== */
 
 function suiteE() {
@@ -138,7 +138,7 @@ function suiteE() {
     code: 'rule2',
     product_name: 'Dairy drink sold by volume, table per 100 g',
     nutrition_data_per: '100g',
-    quantity: '1000 ml',            // volumetric package → rule 2 fires
+    quantity: '1000 ml',            // volumetric package → rule 3 fires
     serving_size: null,
     nova_group: null,
     ingredients: [],
@@ -150,13 +150,13 @@ function suiteE() {
 
   const d = 1.03;
   const truthPer100g = (10 / 100) * (200 * d);   // what the record actually means
-  const rule2Value = r.asConsumed.added_sugar_g;  // what rule 2 produces
+  const rule2Value = r.asConsumed.added_sugar_g;  // what rule 3 produces
 
-  check('E', 'rule 2 fired', r.basis === 'per_100ml');
+  check('E', 'rule 3 fired', r.basis === 'per_100ml');
   check('E', 'provenance is DERIVED_RULE_2 — the wrongness is attributable',
     r.basisProvenance === 'DERIVED_RULE_2', r.basisProvenance);
   near('E', 'quantity_g', r.quantity_g, 206);
-  near('E', 'rule 2 as-consumed sugar', rule2Value, 20);
+  near('E', 'rule 3 as-consumed sugar', rule2Value, 20);
   near('E', 'true as-consumed sugar (per_100g)', truthPer100g, 20.6);
 
   const relError = rule2Value / truthPer100g - 1;
@@ -249,7 +249,7 @@ async function suiteG() {
   check('G', 'USDA basis is per_100g DECLARED',
     resolveBasisOf(resolveFromUSDA({ fdcId: 4, dataType: 'Foundation', description: 'x' }).record) === 'per_100g');
 
-  /* §3.3c rule 4 */
+  /* §3.3c rule 5 */
   const noBasis = resolveFromOFF({
     code: '7b', product_name: 'x', nutrition_data_per: null,
     quantity: '200 g', serving_size: null, ingredients: [], nutriments: {},
@@ -343,7 +343,7 @@ await suiteG();
 
 const heads = {
   D: 'SUITE D — vectors AV-7a, AV-11, AV-12, AV-13',
-  E: 'SUITE E — §3.3c rule 2 traceability (reported separately)',
+  E: 'SUITE E — §3.3c rule 3 traceability (reported separately)',
   F: 'SUITE F — §8.5a saved-product snapshot immutability (reported separately)',
   G: 'SUITE G — §8.2 eligibility, §8.5 manual entry, §8.5a local-only',
 };

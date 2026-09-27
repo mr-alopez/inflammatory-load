@@ -34,9 +34,14 @@ export const fixtures = [
       basis: 'per_serving',
       basisProvenance: 'DECLARED',
       quantity_g: 52.7,
-      contributions: { P1: +2.7, P2: +0.12, P8: +0.5, A1: -0.26, P5: +1.5 },
-      score: 4.56,
+      // COEFF-2 (v2.3): P5 is a fixed 100 g serving, so 52.7 g is 0.527 servings.
+      servings: { P5: 0.527 },
+      contributions: { P1: +2.7, P2: +0.12, P8: +0.5, A1: -0.26, P5: +0.7905 },
+      score: 3.8505,
     },
+    discrimination: [
+      { label: 'COEFF-1: the labelled 52.7 g serving sets P5 (1 serving)', kind: 'score', defective: 4.56 },
+    ],
   },
 
   /* ---------------------------------------------------------------- */
@@ -141,12 +146,14 @@ export const fixtures = [
       p5Suppressed: false,
       // Cancellation: 10.8 × 240 / 100 = 25.92, independent of d.
       asConsumed: { added_sugar_g: 25.92, sodium_mg: 10.08 },
-      servings: { P5: 1.0 },
-      contributions: { P1: +2.592, P2: +0.01008, P5: +1.5 },
-      score: 4.10208,
+      // COEFF-2: fixed 100 ml × 1.04 = 104 g serving; 249.6 / 104 = 2.4.
+      servings: { P5: 2.4 },
+      contributions: { P1: +2.592, P2: +0.01008, P5: +3.6 },
+      score: 6.20208,
     },
     discrimination: [
-      { label: 'apply density once (no cancellation)', kind: 'score', defective: 4.2061632 },
+      { label: 'apply density once (no cancellation)', kind: 'score', defective: 6.3061632 },
+      { label: 'COEFF-1: the labelled 240 ml serving sets P5 (1.0 serving)', kind: 'score', defective: 4.10208 },
       { label: 'single-entry impl zeroing the mixer sugar', kind: 'contribution', field: 'P1', defective: 0 },
     ],
   },
@@ -191,9 +198,14 @@ export const fixtures = [
       created: true,
       basis: 'per_serving',
       quantity_g: 30,
-      contributions: { P1: +0.05, P2: +0.2, P8: +0.1, A1: -0.6, P5: +1.5, A7: -1.0 },
-      score: 0.25,
+      // COEFF-2: 30 g of a fixed 100 g P5 serving is 0.3 servings.
+      servings: { P5: 0.3, A7: 1.0 },
+      contributions: { P1: +0.05, P2: +0.2, P8: +0.1, A1: -0.6, P5: +0.45, A7: -1.0 },
+      score: -0.8,
     },
+    discrimination: [
+      { label: 'COEFF-1: the labelled 30 g serving sets P5 (1 serving)', kind: 'score', defective: 0.25 },
+    ],
   },
 
   /* ---------------------------------------------------------------- */

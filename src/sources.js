@@ -12,11 +12,11 @@ import { DENSITY_MAP } from './coefficients.js';
 import { categoryFromTags, categoryFromUSDA, CATMAP_VERSION } from './category-map.js';
 import { prefillFromRefusal } from './prefill.js';
 import { readDeclared } from './declared.js';
-import { resolveBasis, soldBy } from './scoring.js';
+import { resolveBasis, soldBy, resolveDensity } from './scoring.js';
 
 export const SOURCE_REJECT = {
   DATASET_NOT_ELIGIBLE: 'DATASET_NOT_ELIGIBLE',       // §8.2 USDA Branded
-  BASIS_UNRESOLVED: 'BASIS_UNRESOLVED',               // §3.3c rule 4
+  BASIS_UNRESOLVED: 'BASIS_UNRESOLVED',               // §3.3c rule 5
   GRAIN_MAJORITY_UNKNOWN: 'GRAIN_MAJORITY_UNKNOWN',   // §3.1
   DENSITY_UNRESOLVED: 'DENSITY_UNRESOLVED',           // §3.3a step 3
   NOT_FOUND: 'NOT_FOUND',
@@ -105,7 +105,7 @@ const REFINED_GRAIN = /\b(wheat flour|white flour|enriched flour|refined|semolin
  *
  * @returns 'whole' | 'refined' | 'unknown' | null (not a grain product)
  */
-export function resolveGrainMajority(ingredients = []) {
+export function resolveGrainMajority(ingredients = [], ingredientsText = null) {
   const grains = ingredients.filter(
     (i) => WHOLE_GRAIN.test(i.text || '') || REFINED_GRAIN.test(i.text || '')
   );
@@ -121,8 +121,69 @@ export function resolveGrainMajority(ingredients = []) {
   );
   const wholePct = declared(whole);
   const refinedPct = declared(refined);
-  if (Number.isNaN(wholePct) || Number.isNaN(refinedPct)) return 'unknown';
+  if (Number.isNaN(wholePct) || Number.isNaN(refinedPct)) {
+    return declaredBoundSettlesWhole(ingredientsText) ? 'whole' : 'unknown';
+  }
   return wholePct >= refinedPct ? 'whole' : 'refined';
+}
+
+/**
+ * §3.1 (v2.3) — declared bounds.
+ *
+ * "Contains N% or less of" is a declared upper bound on every ingredient in its
+ * clause, and US ingredients are listed by descending weight (21 CFR 101.4).
+ * Whole grain is the majority when (a) the FIRST ingredient is a whole-grain
+ * flour and (b) EVERY refined flour sits inside such a clause. Nothing else is
+ * read from ingredient order: a refined flour outside a clause still refuses.
+ *
+ * Reads the raw text, because Open Food Facts' parsed list drops the clause.
+ * The pattern is strict: "N% or less", optionally "contains … of". "Less than
+ * N%" is not accepted — the handoff named one form, and loosening it is a spec
+ * decision.
+ */
+const BOUND = /(?:contains\s+)?\d+(?:\.\d+)?\s*%\s+or\s+less(?:\s+of)?/gi;
+
+/** Where each bound clause runs: to the close of its bracket, a sentence stop, or the end. */
+function boundClauses(text) {
+  const ranges = [];
+  for (const m of text.matchAll(BOUND)) {
+    let depth = 0, end = text.length;
+    for (let i = m.index + m[0].length; i < text.length; i++) {
+      const c = text[i];
+      if ('([{'.includes(c)) depth++;
+      else if (')]}'.includes(c)) { if (depth === 0) { end = i; break; } depth--; }
+      else if (c === '.' && depth === 0 && !/\d/.test(text[i + 1] ?? '')) { end = i; break; }
+    }
+    ranges.push([m.index, end]);
+  }
+  return ranges;
+}
+
+/** Ingredient segments with their offsets, split on the list's own punctuation. */
+function segments(text) {
+  const out = [];
+  let start = 0;
+  for (let i = 0; i <= text.length; i++) {
+    // A sentence stop splits too ("salt. Wheat flour"); a decimal point does not.
+    const stop = text[i] === '.' && !/\d/.test(text[i + 1] ?? '');
+    if (i === text.length || stop || /[,;:()[\]{}]/.test(text[i])) {
+      const s = text.slice(start, i);
+      if (s.trim()) out.push({ text: s.trim(), at: start + s.search(/\S/) });
+      start = i + 1;
+    }
+  }
+  return out;
+}
+
+export function declaredBoundSettlesWhole(ingredientsText) {
+  if (typeof ingredientsText !== 'string' || !ingredientsText.trim()) return false;
+  const text = ingredientsText.replace(/^\s*ingredients\s*:\s*/i, (m) => ' '.repeat(m.length));
+  const clauses = boundClauses(text);
+  if (clauses.length === 0) return false;
+  const segs = segments(text);
+  if (!segs[0] || !WHOLE_GRAIN.test(segs[0].text)) return false;                     // (a)
+  const refined = segs.filter((s) => REFINED_GRAIN.test(s.text) && !WHOLE_GRAIN.test(s.text));
+  return refined.every((s) => clauses.some(([a, b]) => s.at >= a && s.at < b));      // (b)
 }
 
 /* ------------------------------------------------------------------ *
@@ -133,14 +194,19 @@ export function resolveFromOFF(raw) {
   if (!raw) return refuse(SOURCE_REJECT.NOT_FOUND, 'no OFF record');
 
   // §3.3c (v2.2): both declared strings are read by the same rule. Rule 1 reads
-  // the serving; rules 2 and 3 read the package, falling back to the serving.
+  // the serving; rules 3 and 4 read the package, falling back to the serving.
   // `label` is the declared figure a shortcut shows; `pack` is N of a multipack.
-  const serving = readDeclared(raw.serving_size);
-  const servingSize = serving ? { value: serving.value, unit: serving.unit, label: serving.label } : null;
+  // v2.3: the serving is read under the US label convention, and a household
+  // volume paired with a metric mass is a declared density (§3.3a step 1).
+  const serving = readDeclared(raw.serving_size, { serving: true });
+  const servingSize = serving
+    ? { value: serving.value, unit: serving.unit, label: serving.label, size: serving.size } : null;
   const pkg = readDeclared(raw.quantity);
-  const packageQty = pkg ? { value: pkg.value, unit: pkg.unit, label: pkg.label, pack: pkg.pack } : null;
-  const grainMajority = resolveGrainMajority(raw.ingredients);
-  const isLiquid = soldBy({ quantity: packageQty, serving_size: servingSize }) === 'volume';
+  const packageQty = pkg
+    ? { value: pkg.value, unit: pkg.unit, label: pkg.label, size: pkg.size, pack: pkg.pack } : null;
+  const grainMajority = resolveGrainMajority(raw.ingredients, raw.ingredients_text);
+  const isLiquid = raw.nutrition_data_per === '100ml'
+    || soldBy({ quantity: packageQty, serving_size: servingSize }) === 'volume';
   const densityClass = raw.density_class ?? null;
 
   /**
@@ -166,6 +232,9 @@ export function resolveFromOFF(raw) {
       quantity: packageQty,
     },
     density_class: densityClass,
+    // §3.3a step 1 (v2.3): the serving's household volume and metric mass,
+    // e.g. "2 tbsp (32 g)". Absent when the serving declares no such pair.
+    ...(serving?.density ? { derived_density: { ...serving.density } } : {}),
     // §3.3a step 2b: carried through from the shaper, which read the declared
     // tags. Null is a valid outcome and means "not enterable by volume".
     bulk_class: raw.bulk_class ?? null,
@@ -194,7 +263,7 @@ export function resolveFromOFF(raw) {
   if (resolveBasis(record).basis === null) {
     return refuse(
       SOURCE_REJECT.BASIS_UNRESOLVED,
-      'nutrition_data_per absent, or no declared quantity settles the basis; per_100g is never a fallback (§3.3c rule 4)'
+      'nutrition_data_per absent, or no declared quantity settles the basis; per_100g is never a fallback (§3.3c rule 5)'
     );
   }
 
@@ -207,9 +276,9 @@ export function resolveFromOFF(raw) {
     );
   }
 
-  // §3.3a step 3 — a liquid with no density class. The volume is declared;
-  // the density is what the user supplies.
-  if (isLiquid && (densityClass === null || DENSITY_MAP[densityClass] === undefined)) {
+  // §3.3a step 3 — a liquid with no density: no declared pair (step 1) and no
+  // class (step 2). The volume is declared; the density is what the user supplies.
+  if (isLiquid && resolveDensity(record).density === null) {
     return refuse(
       SOURCE_REJECT.DENSITY_UNRESOLVED,
       'liquid product with no resolvable density class; never assumed 1.00 (§3.3a step 3)',
@@ -343,21 +412,39 @@ export function resolveFromUSDA(raw) {
  */
 export function quantityShortcuts(record) {
   const out = [];
+  const sizeOf = (q) => q.size ?? { value: q.value, unit: q.unit };
   const pkg = record?.off?.quantity;
   if (pkg && Number.isFinite(pkg.value) && pkg.label) {
     const label = pkg.pack ? `1 of ${pkg.pack} (${pkg.label})` : `1 package (${pkg.label})`;
-    out.push({ id: 'package', label, unitText: label.slice(2), value: pkg.value, unit: pkg.unit });
+    out.push({ id: 'package', entryUnit: pkg.pack ? 'item' : 'package', label, unitText: label.slice(2),
+      value: pkg.value, unit: pkg.unit, size: sizeOf(pkg), pack: pkg.pack ?? null });
   }
   const ss = record?.off?.serving_size;
   if (ss && Number.isFinite(ss.value) && ss.label) {
     const label = `1 serving (${ss.label})`;
-    out.push({ id: 'serving', label, unitText: label.slice(2), value: ss.value, unit: ss.unit });
+    out.push({ id: 'serving', entryUnit: 'serving', label, unitText: label.slice(2),
+      value: ss.value, unit: ss.unit, size: sizeOf(ss), pack: null });
   }
   return out;
 }
 
 /** A shortcut amount (1, 1/2, 2) resolved to the declared quantity it stands for. */
 export const resolveShortcut = (shortcut, amount) => ({ value: amount * shortcut.value, unit: shortcut.unit });
+
+/**
+ * §6.1b (v2.3): the quantity AS ENTERED through a shortcut — the multiple and the
+ * shortcut's unit, carrying its declared size. Scoring resolves it (scoreEntry);
+ * the entry stores it as `quantity_value`, `quantity_unit` and `quantity_shortcut`.
+ */
+export const enteredShortcut = (shortcut, amount) => ({
+  value: amount,
+  unit: shortcut.entryUnit,
+  shortcut: {
+    value: shortcut.value, unit: shortcut.unit,
+    size_value: shortcut.size.value, size_unit: shortcut.size.unit,
+    pack: shortcut.pack,
+  },
+});
 
 /* ------------------------------------------------------------------ *
  * §8.1 — search result order and labelling

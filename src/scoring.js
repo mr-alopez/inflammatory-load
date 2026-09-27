@@ -17,8 +17,8 @@ import {
   DENSITY_MAP,
   ETHANOL_DENSITY,
   ETHANOL_G_PER_UNIT,
-  P5_UNLABELED_SERVING_MASS_G,
-  P5_UNLABELED_SERVING_VOLUME_ML,
+  P5_SERVING_MASS_G,
+  P5_SERVING_VOLUME_ML,
   VOLUME_UNITS,
   COEFF_VERSION,
 } from './coefficients.js';
@@ -26,7 +26,7 @@ import { classifyBulk, bulkDensity, BDMAP_VERSION } from './bulk-density-map.js'
 
 /** Non-creation reasons. An entry is refused, never scored around (§2.3). */
 export const REJECT = {
-  BASIS_UNRESOLVED: 'BASIS_UNRESOLVED',            // §3.3c rule 4
+  BASIS_UNRESOLVED: 'BASIS_UNRESOLVED',            // §3.3c rule 5
   DENSITY_UNRESOLVED: 'DENSITY_UNRESOLVED',        // §3.3a step 3
   GRAIN_MAJORITY_UNKNOWN: 'GRAIN_MAJORITY_UNKNOWN',// §3.1
   P3_REQUIRES_VOLUME: 'P3_REQUIRES_VOLUME',        // §8.5 exception for P3
@@ -75,21 +75,19 @@ function toMl(value, unit) {
  * ------------------------------------------------------------------ */
 
 /**
- * §3.3c rules 2 and 3 (v2.2): is the product sold by mass or by volume?
+ * §3.3c rules 3 and 4 (v2.2): is the product sold by mass or by volume?
  *
- * The package quantity decides. If it is missing or did not resolve, the
- * serving string decides instead — used ONLY for this, never to change the
- * basis. If both resolved they must agree; disagreement is null, and rule 4
- * refuses. Takes the record's `off` block, already read by src/declared.js.
+ * The package quantity, when it resolves, decides alone. The serving string is
+ * read only when the package is missing or does not resolve — used ONLY for
+ * this, never to change the basis. v2.3: the two fields are never required to
+ * agree; a liquid sold by volume may state its serving by mass, and both are
+ * true. Takes the record's `off` block, already read by src/declared.js.
  *
  * @returns 'mass' | 'volume' | null
  */
 export function soldBy(off = {}) {
   const kindOf = (q) => (q && Number.isFinite(q.value) ? (isVolumeUnit(q.unit) ? 'volume' : 'mass') : null);
-  const pkg = kindOf(off.quantity);
-  const serving = kindOf(off.serving_size);
-  if (pkg && serving && pkg !== serving) return null;
-  return pkg ?? serving;
+  return kindOf(off.quantity) ?? kindOf(off.serving_size);
 }
 
 export function resolveBasis(record) {
@@ -118,18 +116,23 @@ export function resolveBasis(record) {
         const parseable = servingSize.unit === 'g' || isVolumeUnit(servingSize.unit);
         if (parseable) return { basis: 'per_serving', provenance: 'DECLARED' };
       }
-      // Rules 2 and 3 key on whether the product is sold by mass or by volume:
+      // Rule 2 (v2.3) — a declared per-100 ml basis. The package is not consulted.
+      if (per === '100ml') return { basis: 'per_100ml', provenance: 'DECLARED' };
+
+      // Rules 3 and 4 key on whether the product is sold by mass or by volume:
       // the package quantity, falling back to the serving string (v2.2).
       const kind = soldBy(off);
-      // Rule 2 — derives, does not read (§3.3c).
+      // Rule 3 — derives, does not read (§3.3c). Its provenance VALUE is still
+      // 'DERIVED_RULE_2': the string is stored on existing entries, and stored
+      // values do not change when the rule is renumbered.
       if (per === '100g' && kind === 'volume') {
         return { basis: 'per_100ml', provenance: 'DERIVED_RULE_2' };
       }
-      // Rule 3
+      // Rule 4
       if (per === '100g' && kind === 'mass') {
         return { basis: 'per_100g', provenance: 'DECLARED' };
       }
-      // Rule 4 — does not resolve. per_100g is never a fallback.
+      // Rule 5 — does not resolve. per_100g is never a fallback.
       return { basis: null, provenance: null };
     }
 
@@ -243,6 +246,11 @@ export function scoreEntry(record, enteredQuantity) {
    */
   let quantity = enteredQuantity;
   let bulkUsed = null;
+  // §3.3 (v2.3): a shortcut quantity — `2 servings` — resolves to its declared
+  // g or ml BEFORE scoring. The entry still stores what was entered (§6.1b).
+  if (quantity.shortcut) {
+    quantity = { value: quantity.value * quantity.shortcut.value, unit: quantity.shortcut.unit };
+  }
   if (isEntryVolumeUnit(quantity.unit) && quantity.unit !== 'ml') {
     const ml = toMl(quantity.value, quantity.unit);
     if (ml === null || !Number.isFinite(ml)) {
@@ -300,7 +308,7 @@ export function scoreEntry(record, enteredQuantity) {
   if (basis === null) {
     return rejected(
       REJECT.BASIS_UNRESOLVED,
-      'source basis does not resolve; per_100g is never a fallback (§3.3c rule 4)'
+      'source basis does not resolve; per_100g is never a fallback (§3.3c rule 5)'
     );
   }
 
@@ -313,8 +321,7 @@ export function scoreEntry(record, enteredQuantity) {
   const needsDensity = nothingToScale ? false :
     quantity.unit === 'ml' ||
     basis === 'per_100ml' ||
-    (basis === 'per_serving' && servingStatedInVolume) ||
-    (cls.P5 && !record.labeled_serving && quantity.unit === 'ml');
+    (basis === 'per_serving' && servingStatedInVolume);
 
   let density = bulkUsed?.density ?? null;
   let densityProvenance = bulkUsed?.provenance ?? null;
@@ -385,15 +392,14 @@ export function scoreEntry(record, enteredQuantity) {
 
     let servingMassG = attr.servingMassG;
     if (id === 'P5') {
-      // §3.3: labeled package serving mass; if unlabeled, 100 g (liquids: 100 ml converted).
-      if (record.labeled_serving) {
-        const ls = record.labeled_serving;
-        servingMassG = isVolumeUnit(ls.unit) ? toMl(ls.value, ls.unit) * density : ls.value;
-      } else {
-        servingMassG = quantity.unit === 'ml'
-          ? P5_UNLABELED_SERVING_VOLUME_ML * density
-          : P5_UNLABELED_SERVING_MASS_G;
-      }
+      // §3.3 (COEFF-2): a FIXED 100 g for every product (liquids: 100 ml
+      // converted). The labelled serving never sets it — manufacturers choose
+      // serving sizes, and a label-set unit would make P5 per gram vary with the
+      // label rather than the food (§1.1). Under COEFF-1 a quarter-second spray
+      // serving made 30 g of cooking spray 25 servings of ultra-processing.
+      servingMassG = quantity.unit === 'ml'
+        ? P5_SERVING_VOLUME_ML * density
+        : P5_SERVING_MASS_G;
     }
     servings[id] = quantity_g / servingMassG;
   }
